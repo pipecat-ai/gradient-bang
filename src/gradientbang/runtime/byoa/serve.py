@@ -3,7 +3,7 @@
 Mirrors what wake_agent's Vercel-Sandbox dispatch does in production:
 validates the wake payload, then starts a fresh BYOA process with the env
 the edge function would have injected into a remote sandbox. The spawned
-child is just ``uv run byoa`` (i.e. :mod:`gradientbang.byoa.app`).
+child is just ``uv run byoa`` (i.e. :mod:`gradientbang.runtime.byoa.app`).
 
 This daemon only runs when the operator explicitly invokes ``byoa --serve``
 on a workstation; it has no role in production. It loads ``.env.byoa`` and
@@ -166,7 +166,7 @@ class _WakeDaemon:
             )
             # Spawn the harness directly; equivalent to `uv run byoa` once the
             # console script is installed, but works even when uv isn't on PATH.
-            cmd = [sys.executable, "-m", "gradientbang.byoa.app"]
+            cmd = [sys.executable, "-m", "gradientbang.runtime.byoa.app"]
             proc = subprocess.Popen(cmd, env=env)
             self._processes[task_id] = proc
 
@@ -283,7 +283,7 @@ def run_wake_daemon(*, host: str, port: int) -> None:
     server = ThreadingHTTPServer((host, port), _make_wake_handler(daemon))
     bound_host, bound_port = server.server_address[:2]
 
-    from gradientbang.byoa.app import _log_startup_banner, _short
+    from gradientbang.runtime.byoa.app import _log_startup_banner, _short
 
     _log_startup_banner(
         mode="serve (wake daemon)",

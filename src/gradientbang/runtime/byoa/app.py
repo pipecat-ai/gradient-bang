@@ -34,7 +34,7 @@ from typing import Any, Awaitable, Callable, Optional, TypeVar, Union
 
 from loguru import logger
 
-from gradientbang.byoa.config import ByoaAgentConfig
+from gradientbang.runtime.byoa.config import ByoaAgentConfig
 
 PROMPT_MAX_BYTES = 8192
 
@@ -132,7 +132,7 @@ class ByoaApp:
     Run ``ByoaApp().run()`` for the zero-config path, or instantiate, attach
     hooks, then run::
 
-        from gradientbang.byoa import ByoaApp
+        from gradientbang.runtime.byoa import ByoaApp
         app = ByoaApp()
 
         @app.prompt
@@ -218,7 +218,7 @@ class ByoaApp:
         # at install time).
         from pipecat.pipeline.runner import PipelineRunner
 
-        from gradientbang.adapters.bus.pgmq import build_pgmq_bus
+        from gradientbang.runtime.bus_transport.pgmq import build_pgmq_bus
         from gradientbang.runtime.subagents.task_agent import TaskAgent
 
         prompt = await _maybe_await(self._prompt_hook, ctx) if self._prompt_hook else ctx.prompt
@@ -310,13 +310,12 @@ def _hooks_summary(app: "ByoaApp") -> str:
 
 
 def _log_startup_banner(*, mode: str, fields: list[tuple[str, str]]) -> None:
-    """Mirror bot.py's startup banner for the BYOA harness.
+    """Log the standard startup banner for the BYOA harness.
 
     Logged as a single ``logger.info`` call so the banner stays atomic in
     line-buffered log destinations (Vercel Sandbox stdout, file sinks, …).
     """
-    from gradientbang import __version__
-    from gradientbang.pipecat_server import STARTUP_BANNER
+    from gradientbang import STARTUP_BANNER, __version__
 
     divider = "─" * 103
     lines = [
@@ -370,7 +369,7 @@ def main() -> None:
     args = _build_parser().parse_args()
     try:
         if args.serve:
-            from gradientbang.byoa.serve import run_wake_daemon
+            from gradientbang.runtime.byoa.serve import run_wake_daemon
 
             run_wake_daemon(host=args.host, port=args.port)
             return

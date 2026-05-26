@@ -7,8 +7,8 @@ object to the rest of the runtime.
 
 Consolidates what used to be split across:
   - ``utils/access_token.py`` (JWT preflight)
-  - ``pipecat_server/bot.py`` (`_resolve_character_identity`, the env-fallback
-    and display-name lookup)
+  - the old bot startup path (identity resolution, env fallback, and
+    display-name lookup)
 """
 
 from __future__ import annotations

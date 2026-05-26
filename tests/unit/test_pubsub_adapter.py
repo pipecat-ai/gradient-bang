@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gradientbang.adapters.events import pubsub as pubsub_module
-from gradientbang.adapters.events.pubsub import DEFAULT_QTY, PubsubEventAdapter
+from gradientbang.game.transport import pubsub as pubsub_module
+from gradientbang.game.transport.pubsub import DEFAULT_QTY, PubsubEventAdapter
 from gradientbang.utils.supabase_client import AsyncGameClient
 
 

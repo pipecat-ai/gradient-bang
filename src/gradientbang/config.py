@@ -9,11 +9,21 @@ Change `ENV_FILE` below to load a different .env file.
 """
 
 import os
+import re
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 PLAYER_AGENT_NAME = "player"
+MAX_CORP_SHIP_TASKS = 3
+MAX_PERSONAL_SHIP_TASKS = 1
+REQUEST_ID_CACHE_TTL_SECONDS = 15 * 60
+REQUEST_ID_CACHE_MAX_SIZE = 5000
+TASK_RESPONSE_SPEECH_START_GRACE_SECONDS = 0.75
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 ENV_FILE = ".env.bot"
 load_dotenv(ENV_FILE, override=False)

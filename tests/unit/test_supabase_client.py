@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 import pytest
 
-from gradientbang.adapters.events.polling import PollingEventAdapter
+from gradientbang.game.transport.polling import PollingEventAdapter
 from gradientbang.utils.supabase_client import AsyncGameClient, per_call_identity
 
 

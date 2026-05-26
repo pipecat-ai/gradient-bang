@@ -68,7 +68,7 @@ class InferenceRule(Enum):
 
 
 class Priority(Enum):
-    """Event priority level — metadata for consumers (e.g. VoiceAgent)."""
+    """Event priority level for runtime consumers."""
 
     NORMAL = "normal"  # Default
     HIGH = "high"  # High priority (e.g. combat started)
@@ -599,7 +599,7 @@ def _action_for_participant(
     payload: Mapping[str, Any], participant_id: str
 ) -> Optional[Mapping[str, Any]]:
     """Look up a participant's action from payload.actions, which is keyed
-    by participant.name (legacy compatibility — see combat_events.ts)."""
+    by participant.name for compatibility with combat_events.ts."""
     actions = payload.get("actions")
     if not isinstance(actions, Mapping):
         return None
@@ -911,7 +911,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "combat.ended": EventConfig(
         append=AppendRule.PARTICIPANT,
         # round_resolved already carries the player-facing outcome; a second
-        # ended-triggered inference makes the voice agent restate the same
+        # ended-triggered inference makes the voice runtime restate the same
         # toll/combat resolution.
         inference=InferenceRule.NEVER,
         priority=Priority.LOW,
@@ -950,10 +950,9 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         voice_summary=_summarize_ships_strategy_cleared,
     ),
     # Task lifecycle
-    # VoiceAgent injects a synthetic task.started event after successful
+    # Orchestrator injects a synthetic task.started event after successful
     # start_task. Appending the framework's task.start as a second startup
-    # event gives the LLM two different task ids for the same launch and
-    # often produces duplicate acknowledgements.
+    # event gives the LLM two different task ids for the same launch.
     "task.start": EventConfig(append=AppendRule.NEVER),
     # Bus protocol (on_task_response) already injects task.completed into the
     # voice LLM. Keeping task.finish in the voice context as a second copy of
@@ -962,7 +961,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "task.finish": EventConfig(
         append=AppendRule.NEVER,
     ),
-    # VoiceAgent emits a synthetic task.cancelled deferred update when a
+    # Orchestrator emits a synthetic task.cancelled deferred update when a
     # task ends abnormally (BYOA wake failure, stop_task, etc.), so the
     # LLM context comes from that path. The server-side task.cancel still
     # needs to fan out to the bus (so TaskAgents shut down) and to RTVI
@@ -979,9 +978,9 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     ),
     "status.update": EventConfig(sync_display_name=True, task_scoped_allowlisted=True),
     "movement.complete": EventConfig(track_sector=True, task_scoped_allowlisted=True),
-    # Voice-agent inference
-    # ports.list is emitted whenever anyone queries known ports. The VoiceAgent
-    # now calls list_known_ports as a direct-response tool (data returns inline
+    # Voice-runtime inference
+    # ports.list is emitted whenever anyone queries known ports. The voice
+    # runtime calls list_known_ports as a direct-response tool (data returns inline
     # in the tool result), so appending the event would duplicate the data and
     # trigger a redundant second inference pass. Suppress append; onboarding's
     # passive observers and the TaskAgent's bus consumer both run before the
@@ -995,12 +994,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         task_scoped_allowlisted=True,
         voice_summary=_summarize_chat,
     ),
-    # rename_ship is a direct-response VoiceAgent tool — the tool result already
+    # rename_ship is a direct-response voice tool — the tool result already
     # triggers the spoken acknowledgment, so appending the server-echoed event
     # would fire a redundant second inference (double-speak). Same pattern as
     # ports.list and corporation.invite_code_regenerated.
     "ship.renamed": EventConfig(append=AppendRule.NEVER),
-    # Voice-agent inference only — when a TaskAgent action completes a quest
+    # Voice-runtime inference only — when a TaskAgent action completes a quest
     # step, on_task_response already triggers inference with run_llm=True.
     # Using ALWAYS here would double-fire (same pattern as task.finish).
     "quest.step_completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
@@ -1022,7 +1021,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # as `nearest_unvisited`. Client still consumes this via RTVI, TaskAgents
     # via the bus; only the voice LLM append is suppressed.
     "map.local": EventConfig(append=AppendRule.NEVER, task_scoped_allowlisted=True),
-    # Corp events (allow corp scope when voice agent)
+    # Corp events (allow corp scope when the player's voice runtime acted)
     "corporation.created": EventConfig(corp_scope_if_own_action=True),
     "corporation.ship_purchased": EventConfig(corp_scope_always_append=True),
     "corporation.ship_sold": EventConfig(corp_scope_always_append=True),
@@ -1034,7 +1033,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "corporation.member_kicked": EventConfig(corp_scope_if_own_action=True),
     "corporation.disbanded": EventConfig(corp_scope_if_own_action=True),
     # Snapshot event used for client UI hydration and TaskAgent corp-state seeding
-    # (delivered via bus broadcast). Voice agent gets corp info via corporation_info
+    # (delivered via bus broadcast). The voice runtime gets corp info via corporation_info
     # tool, which returns summarize_corporation_info; the raw event would only
     # duplicate ~3KB of redundant ship/member/destroyed-ship history per call.
     "corporation.data": EventConfig(append=AppendRule.NEVER),
@@ -1045,7 +1044,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # Pending confirmation events: client-only. The client opens a
     # confirmation modal; the bot's client_message_handler drives the
     # follow-up confirm/cancel and injects its own <event> context for
-    # the voice agent. Leaking the raw pending event into LLM context
+    # the voice runtime. Leaking the raw pending event into LLM context
     # would cause duplicate narration ("you're about to remove Bob...")
     # before the confirm fires.
     "corporation.kick_pending": EventConfig(append=AppendRule.NEVER),
@@ -1054,11 +1053,11 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # CorporationDetailsDialog listens for it to refresh the displayed
     # code. LLM context is injected separately by
     # client_message_handler._handle_regenerate_invite_code (modal path)
-    # and by the voice-agent tool handler's run_llm=True acknowledgement
+    # and by the voice tool handler's run_llm=True acknowledgement
     # (LLM path). We must still subscribe here so the event reaches the
     # RTVI push that feeds the client.
     "corporation.invite_code_regenerated": EventConfig(append=AppendRule.NEVER),
-    # Audited legacy overrides:
+    # Audited event-summary overrides:
     # - event.query needs a shared bounded task/bus summary plus a shorter voice summary
     # - chat.message, ships.list, and combat overrides remain voice-only; generic client summaries
     #   are sufficient for bus/task consumers
@@ -1074,7 +1073,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "map.knowledge": EventConfig(),
     # Map region payloads are large and are emitted by client-driven fetches
     # (e.g. BigMap follow-mode auto-fit) that can dispatch several in a row.
-    # The voice agent has no `local_map_region` tool, the task agent already
+    # The voice runtime has no `local_map_region` tool, the task agent already
     # suppresses these via SYNC_TOOL_EVENTS, and the client UI consumes the
     # event directly off RTVI — so no LLM context needs the raw payload.
     "map.region": EventConfig(append=AppendRule.NEVER),
@@ -1104,7 +1103,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
 
 @runtime_checkable
 class TaskStateProvider(Protocol):
-    """Callbacks that EventRelay needs from the task-state owner (VoiceAgent)."""
+    """Callbacks EventRelay needs from the runtime task-state owner."""
 
     # Event distribution to TaskAgent children via bus
     async def broadcast_game_event(
@@ -1115,7 +1114,7 @@ class TaskStateProvider(Protocol):
     def is_our_task(self, task_id: str) -> bool: ...
 
     # Current task slot usage (appended to status.snapshot summaries so the
-    # voice agent knows whether it has capacity to start another task).
+    # voice runtime knows whether it has capacity to start another task).
     def active_tasks_summary(self) -> str: ...
 
     # Polling scope management
@@ -1126,10 +1125,8 @@ class TaskStateProvider(Protocol):
     # LLM frame management (inherited from LLMAgent)
     @property
     def tool_call_active(self) -> bool: ...
-    # Agent activation state (inherited from BaseAgent). EventRelay gates
-    # onboarding injection on this so the welcome event doesn't fire while
-    # the voice agent is still bridged-inactive (e.g., tutorial scripted
-    # intro is running).
+    # Player worker activation state. EventRelay gates onboarding injection on
+    # this so welcome events do not fire during scripted tutorial takeover.
     @property
     def active(self) -> bool: ...
     async def queue_frame(self, frame) -> None: ...
@@ -1744,7 +1741,7 @@ class EventRelay:
             return True
         # corp_scope_always_append is deliberately broader than
         # corp_scope_if_own_action: we append corp-scoped events to ANY corp
-        # member's voice context, not only when the voice agent was the actor.
+        # member's voice context, not only when the voice runtime was the actor.
         # Used for e.g. corporation.member_joined so every corpmate's LLM
         # learns about the new member (inference still gated by InferenceRule).
         if scope == "corp" and cfg.corp_scope_always_append:
@@ -1830,19 +1827,19 @@ class EventRelay:
         if self._is_friendly_garrison_move(event_name, clean_payload):
             return
 
-        # Detect voice-agent origin before broadcasting to the bus.
+        # Detect player voice-runtime origin before broadcasting to the bus.
         #
         # For non-error events: check the top-level request_id against
-        # VoiceAgent's recent-request cache (set on successful tool calls).
+        # Orchestrator's recent-request cache (set on successful tool calls).
         #
         # For error events: cache-based detection doesn't work because errors
         # are synthesized and emitted *before* the exception returns to the
-        # VoiceAgent handler, so the request_id is never cached. Instead, rely
+        # voice tool handler, so the request_id is never cached. Instead, rely
         # on the architectural fact: all errors flowing through EventRelay come
-        # from VoiceAgent's game_client — TaskAgents have their own client and
+        # from the player game_client — TaskAgents have their own client and
         # receive their own errors via exceptions, never via the bus. A
-        # source.request_id being present (always true for synthesized errors)
-        # is sufficient to confirm it's a VoiceAgent API call error.
+        # source.request_id being present is sufficient to confirm it came from
+        # the player voice-runtime API call path.
         if event_name == "error":
             _src_rid = None
             if isinstance(payload, Mapping):
@@ -1942,7 +1939,7 @@ class EventRelay:
         summary = self._resolve_voice_summary(cfg, event_for_summary, task_summary)
 
         # Append current task slot usage to our own status.snapshot summaries
-        # so the voice agent sees capacity info every time status refreshes.
+        # so the voice runtime sees capacity info every time status refreshes.
         if event_name == "status.snapshot" and not is_other_player and isinstance(summary, str):
             summary = f"{summary}\n{self._task_state.active_tasks_summary()}"
 

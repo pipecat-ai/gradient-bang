@@ -12,8 +12,8 @@ Gradient Bang is an online multiplayer universe where gameplay and systems are d
 
 Most important code in this repo:
 
-- `src/gradientbang/pipecat_server/bot.py` - pipeline wiring, MainAgent (inline), client message handlers
-- `src/gradientbang/pipecat_server/subagents/` - VoiceAgent, EventRelay, TaskAgent, UIAgent
+- `src/gradientbang/bot.py` - pipeline wiring, MainAgent (inline), client message handlers
+- `src/gradientbang/runtime/` - VoiceAgent, EventRelay, TaskAgent, UIAgent
 - `deployment/supabase/functions/` - all game server logic
 - `client/` - web client for the game
 

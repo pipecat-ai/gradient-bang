@@ -348,7 +348,7 @@ Polling remains the fallback. Pubsub is the default direct-Postgres path for onl
 
 ## Subagent bus transport
 
-Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how MainAgent / VoiceAgent / TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide.
+Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how the player runtime, Orchestrator, and TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide.
 
 ### `local` (default)
 
@@ -404,7 +404,7 @@ Available markers: `unit`, `llm`, `integration`, `stress`, `live_api`.
 
 ### Unit tests
 
-The `tests/unit/` directory includes unit tests for the bot's agent layer — EventRelay routing, VoiceAgent tool registration, TaskAgent construction, and EventRelay↔VoiceAgent integration tests that wire real objects together with mock external boundaries.
+The `tests/unit/` directory includes unit tests for the bot's agent layer — EventRelay routing, voice runtime tool registration, TaskAgent construction, and runtime integration tests that wire real objects together with mock external boundaries.
 
 ```bash
 # Run all unit tests

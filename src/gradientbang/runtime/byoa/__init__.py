@@ -16,8 +16,8 @@ Public API:
 * :class:`ByoaConfigError` — raised for missing/malformed BYOA env vars.
 """
 
-from gradientbang.byoa.app import ByoaApp, ByoaConfigError, ByoaContext
-from gradientbang.byoa.config import ByoaAgentConfig
+from gradientbang.runtime.byoa.app import ByoaApp, ByoaConfigError, ByoaContext
+from gradientbang.runtime.byoa.config import ByoaAgentConfig
 
 __all__ = [
     "ByoaAgentConfig",

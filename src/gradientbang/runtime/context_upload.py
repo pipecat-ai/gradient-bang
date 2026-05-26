@@ -43,11 +43,11 @@ def _get_config() -> Optional[Dict[str, str]]:
 
 
 class VoiceContextUploader:
-    """Voice-agent specific wrapper around `upload_context`.
+    """Voice-runtime wrapper around `upload_context`.
 
     Owns per-session sequence numbering (each compaction era gets its own
     seq) and the skip-if-unchanged check for periodic uploads. Builds the
-    s3_key and db_row in the voice-agent shape so bot.py just calls
+    s3_key and db_row in the voice-context shape so bot.py just calls
     ``uploader.upload(reason)``.
     """
 

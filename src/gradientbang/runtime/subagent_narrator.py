@@ -35,7 +35,7 @@ MAX_SETTLE_SECONDS = 8.0
 class SpeechStateSnapshot:
     """Voice-pipeline state the narrator reads at each gate check.
 
-    Producer (the voice agent) owns these fields; narrator only consumes via
+    Producer (the orchestrator) owns these fields; narrator only consumes via
     the ``speech_state`` callback. Snapshot is taken fresh per gate so the
     drain reflects the latest pipeline state.
     """
@@ -59,7 +59,7 @@ class SubagentNarrator:
     Subagents (task completions, wake failures, etc.) call ``enqueue`` with
     a pre-rendered XML event. A drain loop holds each report until the voice
     pipeline is quiet, then injects a batched message into the LLM context
-    so the main agent can speak it. Reports that go stale (the user clearly
+    so the voice runtime can speak it. Reports that go stale (the user clearly
     moved on) are folded into context silently instead of narrated.
     """
 

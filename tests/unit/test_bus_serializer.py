@@ -17,7 +17,7 @@ from typing import Optional
 
 import pytest
 
-from gradientbang.adapters.bus.serializer import BusJSONSerializer
+from gradientbang.runtime.bus_transport.serializer import BusJSONSerializer
 from pipecat.bus import BusMessage
 
 

@@ -20,7 +20,7 @@ from loguru import logger
 from pipecat.bus.network.pgmq import PgmqBus
 from pipecat.bus.network.pgmq_backends import IsolatedPgmqBackend
 
-from gradientbang.adapters.bus.serializer import BusJSONSerializer
+from gradientbang.runtime.bus_transport.serializer import BusJSONSerializer
 
 
 def parse_database_url(dsn: str) -> dict[str, str]:

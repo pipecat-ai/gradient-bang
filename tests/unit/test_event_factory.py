@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from gradientbang.adapters.events.factory import make_event_adapter
-from gradientbang.adapters.events.polling import PollingEventAdapter
-from gradientbang.adapters.events.pubsub import PubsubEventAdapter
+from gradientbang.game.transport.factory import make_event_adapter
+from gradientbang.game.transport.polling import PollingEventAdapter
+from gradientbang.game.transport.pubsub import PubsubEventAdapter
 from gradientbang.utils.supabase_client import AsyncGameClient
 
 

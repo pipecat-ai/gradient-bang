@@ -61,7 +61,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.workers.llm import LLMWorker
 
-from gradientbang.byoa import ByoaAgentConfig
+from gradientbang.runtime.byoa import ByoaAgentConfig
 from gradientbang.runtime.bus import (
     BUS_PROTOCOL_VERSION,
     BusAgentHelloRequest,
@@ -78,7 +78,7 @@ from gradientbang.runtime.bus import (
     BusTaskFinishNotification,
     PendingRequests,
 )
-from gradientbang.tools import GAME_METHOD_ALIASES, TASK_TOOLS
+from gradientbang.runtime.tool_schema import GAME_METHOD_ALIASES, TASK_TOOLS
 from gradientbang.utils.llm_factory import create_llm_service, get_task_agent_llm_config
 from gradientbang.utils.prompt_loader import (
     AVAILABLE_TOPICS,
@@ -259,8 +259,8 @@ class _ResponseStateTracker(FrameProcessor):
 class TaskAgent(LLMWorker):
     """Background task worker with its own LLM pipeline.
 
-    Runs as LLMWorker (not bridged). Receives tasks from a parent (typically
-    VoiceAgent) via the bus task protocol, executes them autonomously using
+    Runs as LLMWorker (not bridged). Receives tasks from the player
+    orchestrator via the bus task protocol, executes them autonomously using
     game tools, and reports progress/completion back.
     """
 
@@ -465,7 +465,7 @@ class TaskAgent(LLMWorker):
 
         logger.info(f"TaskAgent '{self.name}': received task {task_id[:8]}")
 
-        # task.start was already emitted by VoiceAgent. Per-call task_id
+        # task.start was already emitted by Orchestrator. Per-call task_id
         # tagging on the broker's game client happens inside the broker
         # handler, so TaskAgent does not mutate client state here.
 
@@ -727,7 +727,7 @@ class TaskAgent(LLMWorker):
     # ── Idle teardown timer ──────────────────────────────────────────
 
     def _idle_teardown_enabled(self) -> bool:
-        """Player-ship agents are reused across tasks (the voice agent
+        """Player-ship agents are reused across tasks (the orchestrator
         owns a single in-process TaskAgent that stays warm). Corp-ship
         agents are one-shot but use a short idle timer so final messages
         can drain. BYOA agents are also one-shot, but they must exit
@@ -801,11 +801,9 @@ class TaskAgent(LLMWorker):
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
     ) -> None:
         """Filter and process a game event received from the bus."""
-        # Discard errors from VoiceAgent's own tool calls before any path-matching.
-        # All errors through EventRelay come from VoiceAgent's game_client; TaskAgents
-        # receive their own errors via exceptions. The player.id field on real server
-        # errors would otherwise match the character-scoped filter below, bypassing
-        # the ambient-error guard.
+        # Discard errors from the player's direct tool calls before any path
+        # matching. TaskAgents receive their own RPC errors via exceptions, so
+        # EventRelay error events with player identity are ambient to this task.
         if voice_agent_originated and event.get("event_name") == "error":
             return
 
@@ -1060,7 +1058,7 @@ class TaskAgent(LLMWorker):
         """Prepend combat.md + doctrine ahead of round-1 combat entry.
 
         Mirrors ``EventRelay._inject_combat_preamble`` for the player
-        voice agent: every ship — corp ship or player ship — enters
+        player voice runtime: every ship — corp ship or player ship — enters
         combat with full mechanics + its authored doctrine in context,
         in the fixed order ``combat.md → doctrine → event``. Strategy
         is re-fetched every combat (may have changed); combat.md is
@@ -1190,7 +1188,7 @@ class TaskAgent(LLMWorker):
         # Combat preamble: round-1 combat.round_waiting where this agent's
         # ship is a participant gets combat.md (once per agent) + doctrine
         # injected ahead of the event XML — same fixed order as the player
-        # voice agent in EventRelay._inject_combat_preamble.
+        # player voice runtime in EventRelay._inject_combat_preamble.
         await self._maybe_inject_combat_preamble(event_name, event.get("payload"))
 
         # Add event to LLM context
@@ -1883,7 +1881,7 @@ class TaskAgent(LLMWorker):
         if message_type in {TaskOutputType.ACTION, TaskOutputType.EVENT}:
             self._task_output_progress_epoch += 1
 
-        # Send to parent (VoiceAgent) so it can forward to client.
+        # Send to the parent orchestrator so it can forward to the client.
         # Snapshot the current route up front so short-lived tasks do not
         # lose ACTION/STEP/EVENT rows when task state is cleared.
         if message_type:
@@ -1947,7 +1945,7 @@ class TaskAgent(LLMWorker):
     # Special-case handlers that need custom logic are defined as methods.
     #
     # Every task-agent game RPC goes over the bus. _call_game builds a
-    # BusGameToolCallRequest, sends it to the broker (VoiceAgent), and
+    # BusGameToolCallRequest, sends it to the orchestrator broker, and
     # awaits the matching BusGameToolCallResponse via PendingRequests.
 
     async def _call_game(self, method: str, **kwargs) -> Any:

@@ -1,11 +1,12 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from gradientbang.config import PLAYER_AGENT_NAME
 from gradientbang.game.auth import Auth
 from gradientbang.runtime.orchestrator import Orchestrator
+from gradientbang.runtime.voice_runtime import VOICE_TOOL_HANDLERS
 
 pytestmark = pytest.mark.unit
 
@@ -14,12 +15,18 @@ class _VoiceWorker:
     def __init__(self, name: str = PLAYER_AGENT_NAME) -> None:
         self.name = name
         self.active = True
-        self.children = ["child"]
+        self._children = ["child"]
         self.job_groups = {"job-id": "group"}
         self.registry = object()
         self.handlers = {}
         self.calls = []
         self.queued_frames = []
+        self.downstream_filters = []
+        self.upstream_filters = []
+
+    @property
+    def children(self):
+        return self._children
 
     def event_handler(self, event_name: str):
         def decorator(handler):
@@ -50,6 +57,15 @@ class _VoiceWorker:
     async def cancel_task(self, *args, **kwargs) -> None:
         self.calls.append(("cancel_task", args, kwargs))
 
+    def add_reached_downstream_filter(self, filters) -> None:
+        self.downstream_filters.extend(filters)
+
+    def add_reached_upstream_filter(self, filters) -> None:
+        self.upstream_filters.extend(filters)
+
+    async def queue_frame(self, frame, direction=None) -> None:
+        self.queued_frames.append(frame)
+
     async def queue_frames(self, frames) -> None:
         self.queued_frames.extend(frames)
 
@@ -67,22 +83,48 @@ def _orchestrator() -> Orchestrator:
     return orch
 
 
+def _attach(orch: Orchestrator, worker: _VoiceWorker, *, context=object(), transport=None):
+    voice_llm = MagicMock()
+    orch.attach(
+        voice_worker=worker,
+        voice_llm=voice_llm,
+        context=context,
+        transport=transport,
+    )
+    return voice_llm
+
+
 def test_attach_requires_player_worker_name() -> None:
     orch = _orchestrator()
 
     with pytest.raises(ValueError, match="voice_worker must be named 'player'"):
-        orch.attach(voice_worker=_VoiceWorker("main"), context=object(), transport=None)
+        orch.attach(
+            voice_worker=_VoiceWorker("main"),
+            voice_llm=MagicMock(),
+            context=object(),
+            transport=None,
+        )
 
 
 def test_attach_installs_worker_event_bridge() -> None:
     orch = _orchestrator()
     worker = _VoiceWorker()
 
-    orch.attach(voice_worker=worker, context=object(), transport=None)
+    voice_llm = _attach(orch, worker)
 
     assert orch.name == PLAYER_AGENT_NAME
     assert orch.voice_worker is worker
+    assert orch.voice_llm is voice_llm
+    assert orch.voice_runtime is not None
+    assert orch.voice_runtime.host is orch
+    assert {call.args[0] for call in voice_llm.register_function.call_args_list} == set(
+        VOICE_TOOL_HANDLERS
+    )
+    assert worker.downstream_filters
+    assert worker.upstream_filters
     assert set(worker.handlers) == {
+        "on_frame_reached_downstream",
+        "on_frame_reached_upstream",
         "on_worker_ready",
         "on_worker_failed",
         "on_job_update",
@@ -95,7 +137,7 @@ def test_attach_installs_worker_event_bridge() -> None:
 async def test_worker_event_bridge_routes_to_orchestrator_handlers() -> None:
     orch = _orchestrator()
     worker = _VoiceWorker()
-    orch.attach(voice_worker=worker, context=object(), transport=None)
+    _attach(orch, worker)
     orch.on_worker_ready = AsyncMock()
 
     data = SimpleNamespace(worker_name="task_123")
@@ -108,7 +150,7 @@ async def test_worker_event_bridge_routes_to_orchestrator_handlers() -> None:
 async def test_worker_host_facade_delegates_to_voice_worker() -> None:
     orch = _orchestrator()
     worker = _VoiceWorker()
-    orch.attach(voice_worker=worker, context=object(), transport=None)
+    _attach(orch, worker)
 
     assert orch.active is True
     assert orch.children == ["child"]

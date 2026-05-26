@@ -92,15 +92,15 @@ class PendingRequests:
 class BusGameEventMessage(BusDataMessage):
     """Broadcasts a game event to the bus for TaskAgents.
 
-    Sent by VoiceAgent when a game event arrives on the game_client.
+    Sent by Orchestrator when a game event arrives on the game_client.
     TaskAgents filter by their own task_id or character_id.
     Broadcast (no target) so all TaskAgent children receive it.
 
     Parameters:
         event: The game event dict (has event_name, payload, etc.).
-        voice_agent_originated: True if the event was triggered by a VoiceAgent
-            tool call (request_id is in VoiceAgent's recent request_id cache).
-            TaskAgents use this to ignore errors from the VoiceAgent's own calls
+        voice_agent_originated: True if the event was triggered by a player
+            voice tool call (request_id is in Orchestrator's recent request_id cache).
+            TaskAgents use this to ignore errors from direct player-tool calls
             so they don't affect TaskAgent completion tracking or error counts.
     """
 
@@ -112,7 +112,7 @@ class BusGameEventMessage(BusDataMessage):
 class BusSteerTaskMessage(BusDataMessage):
     """Steering instruction for a running task agent.
 
-    Sent by VoiceAgent to redirect a TaskAgent mid-execution.
+    Sent by Orchestrator to redirect a TaskAgent mid-execution.
 
     Parameters:
         task_id: The task identifier to steer.
@@ -128,8 +128,8 @@ class BusSteerTaskMessage(BusDataMessage):
 # ---------------------------------------------------------------------------
 #
 # Naming convention:
-#   Bus<Domain>Request  — TaskAgent → VoiceAgent broker
-#   Bus<Domain>Response — VoiceAgent broker → TaskAgent
+#   Bus<Domain>Request  — TaskAgent → Orchestrator broker
+#   Bus<Domain>Response — Orchestrator broker → TaskAgent
 #
 # Every request/response pair carries ``correlation_id`` to match the
 # awaiting future. Responses set exactly one of ``result`` / ``error``;
@@ -305,12 +305,12 @@ class BusTaskFinishNotification(BusDataMessage):
 
 @dataclass
 class BusAgentHelloRequest(BusDataMessage):
-    """Liveness probe sent by VoiceAgent before delivering a task.
+    """Liveness probe sent by Orchestrator before delivering a task.
 
     A target agent that is alive and ready responds with
     ``BusAgentHelloResponse(ready=true, ...)``. An agent that is still
     warming up does not respond yet (or responds with ``ready=false``).
-    VoiceAgent times out after ``ByoaAgentConfig.agent_wake_timeout_seconds``
+    Orchestrator times out after ``ByoaAgentConfig.agent_wake_timeout_seconds``
     and releases the server-side lock.
 
     The protocol is universal — in-process TaskAgents respond instantly;
@@ -330,7 +330,7 @@ class BusAgentHelloResponse(BusDataMessage):
     Parameters:
         correlation_id: Echoes the request's id.
         ready: True if the agent is alive and accepting work.
-        protocol_version: Bus-message protocol the agent speaks. VoiceAgent
+        protocol_version: Bus-message protocol the agent speaks. Orchestrator
             compares against ``BUS_PROTOCOL_VERSION``; mismatch is logged
             but not fatal (forward-compat).
         capabilities: Free-form agent capability hints (tool versions,

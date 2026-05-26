@@ -51,3 +51,9 @@ async def test_user_text_input_queues_bypass_before_transcription_frames() -> No
     ]
     assert pipeline_worker.queued_frames[0].text == "plot a course to Rigel"
     assert pipeline_worker.queued_frames[3].text == "plot a course to Rigel"
+
+
+def test_deferred_client_message_handlers_are_not_registered() -> None:
+    assert "skip-tutorial" not in ClientMessageHandler._HANDLERS
+    assert "say-text" not in ClientMessageHandler._HANDLERS
+    assert "say-text-dismiss" not in ClientMessageHandler._HANDLERS

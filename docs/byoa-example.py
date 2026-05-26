@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from gradientbang.byoa import ByoaApp, ByoaContext
+from gradientbang.runtime.byoa import ByoaApp, ByoaContext
 
 
 app = ByoaApp()

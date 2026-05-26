@@ -276,7 +276,7 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     // Task events are actor-private. Whether the ship is personal or
     // corp-owned, only the acting character sees task lifecycle updates in
     // their UI and LLM context. There is no server-side mutex: the bot's
-    // in-memory VoiceAgent._locked_ships is the only authority on ship
+    // in-memory runtime task lock is the only authority on ship
     // busyness. See CHANGELOG.md.
     const sEmit = trace.span("emit_event");
     try {

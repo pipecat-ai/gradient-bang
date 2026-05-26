@@ -1,8 +1,8 @@
 """Session bootstrap.
 
 Owns the bot's startup data-gathering flow: the explicit RPCs that build
-the VoiceAgent's initial LLM context. Runs as a strict sequence after the
-client connects, before the agent activates. Failures bubble up — the
+the voice runtime's initial LLM context. Runs as a strict sequence after the
+client connects, before the first inference. Failures bubble up — the
 bot bails rather than half-joining.
 
 Contract with the rest of the bot:
@@ -28,7 +28,7 @@ from gradientbang.utils.prompt_loader import load_prompt
 
 @dataclass
 class InitialState:
-    """Everything bot.py needs to seed the VoiceAgent's first inference."""
+    """Everything bot.py needs to seed the voice runtime's first inference."""
 
     is_first_visit: bool
     is_new_player: bool

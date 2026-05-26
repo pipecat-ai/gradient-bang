@@ -17,7 +17,7 @@ from loguru import logger
 from pipecat.bus import BusEndWorkerMessage
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 
-from gradientbang.byoa import ByoaAgentConfig
+from gradientbang.runtime.byoa import ByoaAgentConfig
 from gradientbang.runtime.bus import BusByoaPresenceMessage
 from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.supabase_client import AsyncGameClient

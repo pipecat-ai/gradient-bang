@@ -25,8 +25,8 @@ class IdleReportProcessor(FrameProcessor):
     """Monitors pipeline activity and fires idle reports with cooldown.
 
     Owns all idle-report timing: the idle timer, the 30s cooldown, and
-    activity detection.  Replaces the previous three-part system
-    (pipecat UserIdleController + VoiceAgent cooldown + bot.py event handlers).
+    activity detection. Orchestrator supplies the callback that injects the
+    actual idle-report prompt.
 
     The idle timer starts when the bot *finishes* speaking
     (BotStoppedSpeakingFrame), not when it starts.  Bot/LLM starting to

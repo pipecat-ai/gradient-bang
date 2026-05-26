@@ -109,7 +109,7 @@ Prefer this order:
 
 1. Prompt changes via `BYOA_PROMPT` or `BYOA_PROMPT_FILE`.
 2. Vercel wake-function changes in [deployment/vercel/api/wake.ts](../deployment/vercel/api/wake.ts).
-3. Harness hooks through `gradientbang.byoa.ByoaApp`; start from [byoa-example.py](byoa-example.py).
+3. Harness hooks through `gradientbang.runtime.byoa.ByoaApp`; start from [byoa-example.py](byoa-example.py).
 4. A fully custom runner using the TaskAgent and bus building blocks.
 
 For most operators, the first two are enough. Eject from the default harness only when you need custom model routing, external memory, metrics, or non-standard task behavior.

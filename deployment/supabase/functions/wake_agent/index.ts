@@ -1,15 +1,15 @@
 /**
  * Edge Function: wake_agent
  *
- * Called by the bot's VoiceAgent for BYOA task wake.
+ * Called by the bot runtime for BYOA task wake.
  *
- *   1. Channel handoff: the voice agent owns the per-session subagent-bus
+ *   1. Channel handoff: the player runtime owns the per-session subagent-bus
  *      channel and includes it in this request.
  *
  *   2. Spawn dispatch: based on `BYOA_WAKE_TARGET` env, optionally trigger a
  *      process spawn with BYOA_CHANNEL, BYOA_SHIP_ID, and
  *      BYOA_BUS_DATABASE_URL. Local dev uses the generic `http` target against
- *      `uv run byoa serve`; future production sandbox targets use the same
+ *      `uv run byoa --serve`; future production sandbox targets use the same
  *      runtime env payload.
  *
  * Authorization: same `authenticate(req)` + `canActOnCharacter(auth, ship_id)`

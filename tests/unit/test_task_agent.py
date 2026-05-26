@@ -19,7 +19,7 @@ from pipecat.bus import (
     BusJobRequestMessage,
     BusJobUpdateMessage,
 )
-from gradientbang.tools import TASK_TOOLS
+from gradientbang.runtime.tool_schema import TASK_TOOLS
 from gradientbang.utils.prompt_loader import TaskOutputType
 from gradientbang.utils.summary_formatters import event_query_summary
 

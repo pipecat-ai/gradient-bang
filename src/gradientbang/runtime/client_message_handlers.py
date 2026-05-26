@@ -45,7 +45,6 @@ class ClientMessageHandler:
         transport,
         pipeline_worker,
         llm_context=None,
-        on_skip_tutorial=None,
     ):
         self._game_client = game_client
         self._character_id = character_id
@@ -53,7 +52,6 @@ class ClientMessageHandler:
         self._transport = transport
         self._pipeline_worker = pipeline_worker
         self._llm_context = llm_context
-        self._on_skip_tutorial = on_skip_tutorial
         self._voices = get_voices_for_provider(get_tts_provider())
 
     async def handle(self, message):
@@ -507,12 +505,6 @@ class ClientMessageHandler:
             logger.error(f"combat-action failed: {exc}")
             await self._rtvi.send_server_message({"frame_type": "error", "error": str(exc)})
 
-    async def _handle_say_text(self, msg_type, msg_data):
-        logger.debug("Ignoring deprecated say-text client message")
-
-    async def _handle_say_text_dismiss(self, msg_type, msg_data):
-        logger.debug("Ignoring deprecated say-text-dismiss client message")
-
     async def _handle_user_text_input(self, msg_type, msg_data):
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
         await self._pipeline_worker.queue_frame(UserTextInputFrame(text=text))
@@ -597,7 +589,7 @@ class ClientMessageHandler:
         logger.info(f"Voice switched to {voice_name} (language={new_language})")
 
     async def _handle_set_personality(self, msg_type, msg_data):
-        """Append a system message overriding the voice agent's personality."""
+        """Append a system message overriding the voice runtime's personality."""
         tone = msg_data.get("tone", "").strip() if isinstance(msg_data, dict) else ""
         if not tone:
             return
@@ -789,18 +781,13 @@ class ClientMessageHandler:
             )
         )
 
-    async def _handle_skip_tutorial(self, msg_type, msg_data):
-        if self._on_skip_tutorial:
-            logger.info("Skipping tutorial")
-            await self._on_skip_tutorial()
-
     # ── Corporation confirmation flows ────────────────────────────────
     #
     # The LLM never sets the `confirm` flag — it's not in the tool schema
     # and the voice handlers never pass it. These handlers are the ONLY
     # place that flips confirm=True, and only in response to an explicit
     # user click on the modal. After the server call completes, we inject
-    # a context message so the voice agent can narrate the outcome.
+    # a context message so the voice runtime can narrate the outcome.
 
     async def _inject_llm_event(self, content: str) -> None:
         """Append a user-role <event> message and trigger inference."""
@@ -978,15 +965,19 @@ class ClientMessageHandler:
         "get-my-map": _handle_get_my_map,
         "salvage_collect": _handle_salvage_collect,
         "combat-action": _handle_combat_action,
-        "say-text": _handle_say_text,
-        "say-text-dismiss": _handle_say_text_dismiss,
+        # Deferred with tutorial/scripted-agent work. The old handlers drove
+        # direct TTS playback and voice restore state that is not part of the
+        # new runtime yet.
+        # "say-text": _handle_say_text,
+        # "say-text-dismiss": _handle_say_text_dismiss,
         "user-text-input": _handle_user_text_input,
         "assign-quest": _handle_assign_quest,
         "claim-step-reward": _handle_claim_step_reward,
         "set-voice": _handle_set_voice,
         "set-personality": _handle_set_personality,
         "custom-message": _handle_custom_message,
-        # Relies on ScriptedAgent tutorial wiring, which is still WIP.
+        # Deferred until ScriptedAgent tutorial activation is wired into
+        # the runtime.
         # "skip-tutorial": _handle_skip_tutorial,
         "dump-llm-context": _handle_dump_llm_context,
         "dump-task-context": _handle_dump_task_context,

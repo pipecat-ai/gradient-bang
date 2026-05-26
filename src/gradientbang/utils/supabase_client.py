@@ -16,8 +16,8 @@ import time
 
 import httpx
 
-from gradientbang.adapters.events import make_event_adapter
-from gradientbang.adapters.events.base import EventAdapter
+from gradientbang.game.transport import make_event_adapter
+from gradientbang.game.transport.base import EventAdapter
 from gradientbang.utils.api_client import BaseAsyncGameClient, RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 

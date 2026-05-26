@@ -22,8 +22,8 @@ from __future__ import annotations
 import os
 import uuid
 
-from gradientbang.adapters.bus.base import AgentBus
-from gradientbang.adapters.bus.local import AsyncQueueBus
+from gradientbang.runtime.bus_transport.base import AgentBus
+from gradientbang.runtime.bus_transport.local import AsyncQueueBus
 
 _VALID_TRANSPORTS = {"local", "pgmq"}
 
@@ -50,7 +50,7 @@ async def make_subagent_bus() -> AgentBus:
     if transport == "pgmq":
         # Lazy import so unit tests of the local branch don't pull in
         # pgmq/asyncpg.
-        from gradientbang.adapters.bus.pgmq import build_pgmq_bus
+        from gradientbang.runtime.bus_transport.pgmq import build_pgmq_bus
 
         dsn = (os.getenv("SUBAGENT_BUS_DATABASE_URL") or "").strip()
         if not dsn:

@@ -205,7 +205,7 @@ async def run_task(args: argparse.Namespace) -> int:
     from pipecat.pipeline.runner import PipelineRunner
 
     from gradientbang.runtime.subagents.task_agent import TaskAgent
-    from gradientbang.tools import (
+    from gradientbang.runtime.tool_schema import (
         CREATE_CORPORATION,
         JOIN_CORPORATION,
         LEAVE_CORPORATION,

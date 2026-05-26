@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 
 from loguru import logger
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import BotSpeakingFrame, LLMRunFrame, UserSpeakingFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -64,6 +65,7 @@ from gradientbang.runtime.inference_gate import (
 from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.s3_smart_turn import S3SmartTurnAnalyzerV3
 from gradientbang.runtime.user_mute import TextInputBypassFirstBotMuteStrategy
+from gradientbang.runtime.voice_runtime import build_voice_tools
 from gradientbang.runtime.voices import (
     DEFAULT_PERSONALITY_TONE,
     get_default_voice_id,
@@ -235,7 +237,10 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
 
-    context = LLMContext(messages=[system_message])
+    context = LLMContext(
+        messages=[system_message],
+        tools=ToolsSchema(build_voice_tools()),
+    )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
@@ -384,6 +389,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     # and bus identity.
     orchestrator.attach(
         voice_worker=voice_worker,
+        voice_llm=voice_llm,
         context=context,
         transport=transport,
     )
