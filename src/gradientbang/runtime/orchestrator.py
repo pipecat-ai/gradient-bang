@@ -295,3 +295,5 @@ class Orchestrator:
         """Queue a frame into the voice pipeline worker."""
         if self.voice_worker is not None:
             await self.voice_worker.queue_frames([frame])
+
+    # ── Event Handlers ────────────

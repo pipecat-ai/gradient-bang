@@ -515,7 +515,10 @@ class ClientMessageHandler:
 
     async def _handle_user_text_input(self, msg_type, msg_data):
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
-        frames = [UserTextInputFrame(text=text), InterruptionFrame()]
+        await self._pipeline_worker.queue_frame(UserTextInputFrame(text=text))
+        await asyncio.sleep(0)
+
+        frames = [InterruptionFrame()]
         if text.strip():
             logger.info(f"[USER-TEXT-INPUT] Received text: {text}")
             frames.extend(
@@ -983,7 +986,8 @@ class ClientMessageHandler:
         "set-voice": _handle_set_voice,
         "set-personality": _handle_set_personality,
         "custom-message": _handle_custom_message,
-        "skip-tutorial": _handle_skip_tutorial,
+        # Relies on ScriptedAgent tutorial wiring, which is still WIP.
+        # "skip-tutorial": _handle_skip_tutorial,
         "dump-llm-context": _handle_dump_llm_context,
         "dump-task-context": _handle_dump_task_context,
         "confirm-leave": _handle_confirm_leave,

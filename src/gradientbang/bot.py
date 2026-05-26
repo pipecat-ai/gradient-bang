@@ -40,6 +40,10 @@ from gradientbang.game.auth import Auth, AuthError
 from gradientbang.game.base_client import RPCError
 from gradientbang.game.local_api_server import LocalApiServer
 from gradientbang.runtime.context_upload import VoiceContextUploader
+from gradientbang.runtime.daily_recording import (
+    configure_recording_bucket,
+    start_raw_tracks_recording,
+)
 from gradientbang.runtime.frames import TaskActivityFrame
 from gradientbang.runtime.idle_report import IdleReportProcessor
 from gradientbang.runtime.inference_gate import (
@@ -47,13 +51,9 @@ from gradientbang.runtime.inference_gate import (
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
+from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.s3_smart_turn import S3SmartTurnAnalyzerV3
 from gradientbang.runtime.user_mute import TextInputBypassFirstBotMuteStrategy
-from gradientbang.runtime.daily_recording import (
-    configure_recording_bucket,
-    start_raw_tracks_recording,
-)
-from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.voices import (
     DEFAULT_PERSONALITY_TONE,
     get_default_voice_id,
@@ -87,9 +87,6 @@ init_weave()
 init_cekura()
 
 
-# ─── Bot code ────────────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class BotRuntimeConfig:
     voice_name: str | None
@@ -114,6 +111,9 @@ class BotRuntimeConfig:
 
 def _log_boot_step(message: str) -> None:
     logger.opt(colors=True).info(f"<blue>▶▶▶ {message}</blue>")
+
+
+# ─── Bot code ────────────────────────────────────────────────────────────────
 
 
 async def run_bot(transport, runner_args: RunnerArguments) -> None:
@@ -280,15 +280,6 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
                 }
             )
         )
-
-    # Log Pipecat mute transitions.
-    @user_aggregator.event_handler("on_user_mute_started")
-    async def on_user_mute_started(aggregator):
-        logger.info("User input muted")
-
-    @user_aggregator.event_handler("on_user_mute_stopped")
-    async def on_user_mute_stopped(aggregator):
-        logger.info("User input unmuted")
 
     # ── Inference gates ───────────────────────────────────────────────
     # Prevent overlapping or immediately repeated LLM turns.
