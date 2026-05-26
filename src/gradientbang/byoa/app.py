@@ -219,7 +219,7 @@ class ByoaApp:
         from pipecat.pipeline.runner import PipelineRunner
 
         from gradientbang.adapters.bus.pgmq import build_pgmq_bus
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
         prompt = await _maybe_await(self._prompt_hook, ctx) if self._prompt_hook else ctx.prompt
         llm_override = await _maybe_await(self._llm_hook, ctx) if self._llm_hook else None

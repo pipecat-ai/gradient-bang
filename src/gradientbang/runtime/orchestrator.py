@@ -6,6 +6,8 @@ Pipecat worker host used by task agents.
 
 from __future__ import annotations
 
+import inspect
+from functools import wraps
 from typing import Any, Dict
 
 from loguru import logger
@@ -23,6 +25,29 @@ from gradientbang.runtime.client_message_handlers import ClientMessageHandler
 from gradientbang.runtime.event_relay import EventRelay
 from gradientbang.runtime.session_init import gather_initial_state
 from gradientbang.utils.prompt_loader import apply_prompt_substitutions, set_prompt_substitutions
+
+
+def require_voice_worker(func):
+    """Inject the attached player worker into facade methods."""
+
+    def _get_worker(self: "Orchestrator") -> PipelineWorker:
+        if self.voice_worker is None:
+            raise RuntimeError("voice worker is not attached")
+        return self.voice_worker
+
+    if inspect.iscoroutinefunction(func):
+
+        @wraps(func)
+        async def async_wrapper(self: "Orchestrator", *args, **kwargs):
+            return await func(self, _get_worker(self), *args, **kwargs)
+
+        return async_wrapper
+
+    @wraps(func)
+    def sync_wrapper(self: "Orchestrator", *args, **kwargs):
+        return func(self, _get_worker(self), *args, **kwargs)
+
+    return sync_wrapper
 
 
 class Orchestrator:
@@ -116,11 +141,6 @@ class Orchestrator:
 
     # ── Worker Host Facade ────────────────────────────────────────────
 
-    def _require_voice_worker(self) -> PipelineWorker:
-        if self.voice_worker is None:
-            raise RuntimeError("voice worker is not attached")
-        return self.voice_worker
-
     @property
     def name(self) -> str:
         """Bus identity used by player-owned task agents."""
@@ -136,37 +156,58 @@ class Orchestrator:
         return self.voice_worker.active
 
     @property
-    def children(self):
-        return self._require_voice_worker().children
+    @require_voice_worker
+    def children(self, voice_worker: PipelineWorker):
+        return voice_worker.children
 
     @property
-    def job_groups(self):
-        return self._require_voice_worker().job_groups
+    @require_voice_worker
+    def job_groups(self, voice_worker: PipelineWorker):
+        return voice_worker.job_groups
 
     @property
-    def registry(self):
-        return self._require_voice_worker().registry
+    @require_voice_worker
+    def registry(self, voice_worker: PipelineWorker):
+        return voice_worker.registry
 
-    async def send_bus_message(self, message) -> None:
-        await self._require_voice_worker().send_bus_message(message)
+    @require_voice_worker
+    async def send_bus_message(self, voice_worker: PipelineWorker, message) -> None:
+        await voice_worker.send_bus_message(message)
 
-    async def add_worker(self, worker) -> None:
-        await self._require_voice_worker().add_worker(worker)
+    @require_voice_worker
+    async def add_worker(self, voice_worker: PipelineWorker, worker) -> None:
+        await voice_worker.add_worker(worker)
 
-    async def watch_worker(self, worker_name: str) -> None:
-        await self._require_voice_worker().watch_worker(worker_name)
+    @require_voice_worker
+    async def watch_worker(self, voice_worker: PipelineWorker, worker_name: str) -> None:
+        await voice_worker.watch_worker(worker_name)
 
-    async def cancel_job_group(self, job_id: str, *, reason: str | None = None) -> None:
-        await self._require_voice_worker().cancel_job_group(job_id, reason=reason)
+    @require_voice_worker
+    async def cancel_job_group(
+        self,
+        voice_worker: PipelineWorker,
+        job_id: str,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        await voice_worker.cancel_job_group(job_id, reason=reason)
 
-    async def request_job_update(self, job_id: str, worker_name: str) -> None:
-        await self._require_voice_worker().request_job_update(job_id, worker_name)
+    @require_voice_worker
+    async def request_job_update(
+        self,
+        voice_worker: PipelineWorker,
+        job_id: str,
+        worker_name: str,
+    ) -> None:
+        await voice_worker.request_job_update(job_id, worker_name)
 
-    def create_task(self, *args, **kwargs):
-        return self._require_voice_worker().create_task(*args, **kwargs)
+    @require_voice_worker
+    def create_task(self, voice_worker: PipelineWorker, *args, **kwargs):
+        return voice_worker.create_task(*args, **kwargs)
 
-    async def cancel_task(self, *args, **kwargs) -> None:
-        await self._require_voice_worker().cancel_task(*args, **kwargs)
+    @require_voice_worker
+    async def cancel_task(self, voice_worker: PipelineWorker, *args, **kwargs) -> None:
+        await voice_worker.cancel_task(*args, **kwargs)
 
     async def queue_frame(self, frame) -> None:
         """Queue a frame into the player voice pipeline."""

@@ -6,8 +6,8 @@ from dataclasses import replace
 
 import pytest
 
-from gradientbang.pipecat_server import subagent_narrator as sn
-from gradientbang.pipecat_server.subagent_narrator import (
+from gradientbang.runtime import subagent_narrator as sn
+from gradientbang.runtime.subagent_narrator import (
     SpeechStateSnapshot,
     SubagentNarrator,
 )

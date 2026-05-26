@@ -28,7 +28,7 @@ from loguru import logger
 from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 
-from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
+from gradientbang.runtime.chat_history import emit_chat_history, fetch_chat_history
 from gradientbang.utils.formatting import (
     extract_display_name,
     short_id,

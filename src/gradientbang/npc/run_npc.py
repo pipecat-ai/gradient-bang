@@ -204,7 +204,7 @@ async def run_task(args: argparse.Namespace) -> int:
     from pipecat.pipeline.job_context import JobStatus
     from pipecat.pipeline.runner import PipelineRunner
 
-    from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+    from gradientbang.runtime.subagents.task_agent import TaskAgent
     from gradientbang.tools import (
         CREATE_CORPORATION,
         JOIN_CORPORATION,
@@ -288,8 +288,8 @@ async def run_task(args: argparse.Namespace) -> int:
 
         # Forward game events from the game client to the bus so TaskAgent
         # receives completion events (status.snapshot, movement.complete, etc.).
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
-        from gradientbang.pipecat_server.subagents.task_agent import ASYNC_TOOL_COMPLETIONS
+        from gradientbang.runtime.bus import BusGameEventMessage
+        from gradientbang.runtime.subagents.task_agent import ASYNC_TOOL_COMPLETIONS
 
         # Every event type TaskAgent may wait on, plus ambient ones it filters for.
         _NPC_FORWARDED_EVENTS = set(ASYNC_TOOL_COMPLETIONS.values()) | {

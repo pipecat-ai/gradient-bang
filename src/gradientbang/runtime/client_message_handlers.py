@@ -312,7 +312,7 @@ class ClientMessageHandler:
             )
 
     async def _handle_get_chat_history(self, msg_type, msg_data):
-        from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
+        from gradientbang.runtime.chat_history import emit_chat_history, fetch_chat_history
 
         try:
             since_hours_raw = msg_data.get("since_hours") if isinstance(msg_data, dict) else None
@@ -651,7 +651,7 @@ class ClientMessageHandler:
         # Task agent contexts
         children = getattr(self._pipeline_worker, "children", ())
         if children:
-            from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+            from gradientbang.runtime.subagents.task_agent import TaskAgent
 
             for child in children:
                 if not isinstance(child, TaskAgent):
@@ -700,7 +700,7 @@ class ClientMessageHandler:
         """
         import json
 
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
         task_id = msg_data.get("task_id") if isinstance(msg_data, dict) else None
         if not task_id:

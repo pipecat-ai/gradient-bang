@@ -134,3 +134,15 @@ async def test_worker_host_facade_delegates_to_voice_worker() -> None:
         ("cancel_task", ("created-task",), {"timeout": 2}),
     ]
     assert worker.queued_frames == ["frame"]
+
+
+@pytest.mark.asyncio
+async def test_worker_host_facade_requires_attached_worker() -> None:
+    orch = _orchestrator()
+
+    with pytest.raises(RuntimeError, match="voice worker is not attached"):
+        _ = orch.children
+    with pytest.raises(RuntimeError, match="voice worker is not attached"):
+        orch.create_task("coro")
+    with pytest.raises(RuntimeError, match="voice worker is not attached"):
+        await orch.send_bus_message("message")

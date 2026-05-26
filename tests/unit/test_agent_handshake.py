@@ -16,12 +16,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusAgentHelloRequest,
     BusAgentHelloResponse,
     BUS_PROTOCOL_VERSION,
 )
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
 from pipecat.bus import BusEndWorkerMessage
 
@@ -124,7 +124,7 @@ class TestIdleTeardownTimer:
     @pytest.mark.asyncio
     async def test_corp_ship_teardown_fires_after_delay(self):
         """The handle fires its callback and the agent emits BusEndWorkerMessage."""
-        from gradientbang.pipecat_server.subagents.bus_messages import (
+        from gradientbang.runtime.bus import (
             BusGameToolCallRequest,  # noqa: F401
         )
         from pipecat.bus import BusEndWorkerMessage

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from gradientbang.pipecat_server.subagents.bus_correlation import (
+from gradientbang.runtime.bus import (
     PendingRequests,
     PendingRequestsClosedError,
 )

@@ -14,7 +14,7 @@ from dataclasses import asdict, fields
 import pytest
 from pipecat.bus import BusDataMessage
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BUS_PROTOCOL_VERSION,
     BusAgentHelloRequest,
     BusAgentHelloResponse,

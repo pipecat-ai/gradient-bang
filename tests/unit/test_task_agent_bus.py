@@ -29,8 +29,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -38,8 +37,9 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusGameToolCallRequest,
     BusGameToolCallResponse,
     BusTaskFinishNotification,
+    PendingRequests,
 )
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 
 
 def _make_agent(**overrides) -> TaskAgent:

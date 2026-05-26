@@ -16,10 +16,8 @@ What lives here:
 - Narrow host facade methods that ByoaCoordinator depends on
   (release_ship_lock, clear_pending_task, ship_for_locked_task, etc.).
 
-Speech-aware queueing of subagent reports (task.completed and friends) lives
-in ``SubagentNarrator`` — see ``pipecat_server/subagent_narrator.py``.
-BYOA wake, presence, broker auth, and registry handling live in
-``ByoaCoordinator`` — see ``pipecat_server/byoa_coordinator.py``.
+Speech-aware queueing lives in ``runtime.subagent_narrator``. BYOA wake,
+presence, broker auth, and registry handling live in ``runtime.byoa_coordinator``.
 """
 
 from __future__ import annotations
@@ -65,14 +63,8 @@ from pipecat.workers.llm import LLMWorker
 from pipecat.workers.llm.llm_worker import PipelineFlushFrame
 
 from gradientbang.byoa import ByoaAgentConfig
-from gradientbang.pipecat_server.byoa_coordinator import ByoaCoordinator
-from gradientbang.pipecat_server.frames import TaskActivityFrame
-from gradientbang.pipecat_server.subagent_narrator import (
-    SpeechStateSnapshot,
-    SubagentNarrator,
-)
-from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.byoa_coordinator import ByoaCoordinator
+from gradientbang.runtime.bus import (
     BusAgentHelloRequest,
     BusAgentHelloResponse,
     BusByoaPresenceMessage,
@@ -85,9 +77,15 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusGameToolCallResponse,
     BusSteerTaskMessage,
     BusTaskFinishNotification,
+    PendingRequests,
+)
+from gradientbang.runtime.frames import TaskActivityFrame
+from gradientbang.runtime.subagent_narrator import (
+    SpeechStateSnapshot,
+    SubagentNarrator,
 )
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from gradientbang.tools import VOICE_TOOLS
 from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.formatting import looks_like_uuid

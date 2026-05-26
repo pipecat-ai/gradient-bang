@@ -1,3 +1,10 @@
+"""
+┏━╸┏━┓┏━┓╺┳┓╻┏━╸┏┓╻╺┳╸   ┏┓ ┏━┓┏┓╻┏━╸
+┃╺┓┣┳┛┣━┫ ┃┃┃┣╸ ┃┗┫ ┃    ┣┻┓┣━┫┃┗┫┃╺┓
+┗━┛╹┗╸╹ ╹╺┻┛╹┗━╸╹ ╹ ╹    ┗━┛╹ ╹╹ ╹┗━┛
+by pipecat.ai and daily.co
+"""
+
 import asyncio
 import os
 import uuid
@@ -10,6 +17,10 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_context_summarizer import (
+    LLMContextSummarizer,
+    SummaryAppliedEvent,
+)
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -254,7 +265,11 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     )
 
     @assistant_aggregator.event_handler("on_summary_applied")
-    async def on_summary_applied(aggregator, summarizer, event):
+    async def on_summary_applied(
+        aggregator,
+        summarizer: LLMContextSummarizer,
+        event: SummaryAppliedEvent,
+    ) -> None:
         logger.info(
             f"Context summarized: {event.original_message_count} -> "
             f"{event.new_message_count} messages "

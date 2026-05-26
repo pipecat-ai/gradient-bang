@@ -1,7 +1,7 @@
 """Round-trip every gradient-bang custom ``BusMessage`` through ``JSONMessageSerializer``.
 
 Precondition for Phase 2's PGMQ transport: any custom message added to
-``bus_messages.py`` must serialize cleanly via the upstream serializer, since
+``runtime.bus`` messages must serialize cleanly via the upstream serializer, since
 PGMQ carries JSON bytes. If a field is typed as something non-JSON-safe (an
 object reference, a callable, etc.) the serializer drops it with a warning
 and the receiver gets a stripped message — exactly the silent breakage this
@@ -11,7 +11,7 @@ test guards against.
 import pytest
 from pipecat.bus.serializers import JSONMessageSerializer
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BUS_PROTOCOL_VERSION,
     BusAgentHelloRequest,
     BusAgentHelloResponse,
