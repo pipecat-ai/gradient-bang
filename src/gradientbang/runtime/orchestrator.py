@@ -1,9 +1,7 @@
-"""Per-session controller for a Gradient Bang bot.
+"""Per-session orchestrator for a Gradient Bang bot.
 
-Owns everything that needs to outlive a single LLM turn: the game client
-(Supabase edge-function RPCs), the subagent bus (TaskAgent / UIAgent
-comms), the event relay (game events → RTVI + LLM context), and
-references to the bot.py-owned PipelineWorker and LLMContext.
+Owns session-level glue: game I/O, event relay, client messages, and the
+Pipecat worker host used by task agents.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageF
 
 from gradientbang import __version__
 from gradientbang.adapters.bus import AgentBus, make_subagent_bus
-from gradientbang.config import settings
+from gradientbang.config import PLAYER_AGENT_NAME, settings
 from gradientbang.game.auth import Auth
 from gradientbang.game.client import AsyncGameClient
 from gradientbang.runtime.client_message_handlers import ClientMessageHandler
@@ -28,6 +26,8 @@ from gradientbang.utils.prompt_loader import apply_prompt_substitutions, set_pro
 
 
 class Orchestrator:
+    # ── Runtime Setup ────────────────────────────────────────────────
+
     def __init__(
         self,
         *,
@@ -46,6 +46,7 @@ class Orchestrator:
         self.event_relay: EventRelay | None = None
         self.context: LLMContext | None = None
         self.client_messages: ClientMessageHandler | None = None
+        self._worker_event_bridge_installed = False
 
     @classmethod
     async def create(
@@ -89,11 +90,16 @@ class Orchestrator:
         context: LLMContext,
         transport,
     ) -> None:
-        """Register pipeline handles needed after construction."""
+        """Register runtime handles owned by bot.py."""
         assert self.game_client is not None, "game_client must be created first"
         assert self.auth.character_id is not None, "auth.character_id required"
+        if voice_worker.name != PLAYER_AGENT_NAME:
+            raise ValueError(
+                f"voice_worker must be named {PLAYER_AGENT_NAME!r}; got {voice_worker.name!r}"
+            )
         self.voice_worker = voice_worker
         self.context = context
+        self._install_worker_event_bridge(voice_worker)
         self.client_messages = ClientMessageHandler(
             game_client=self.game_client,
             character_id=self.auth.character_id,
@@ -107,6 +113,119 @@ class Orchestrator:
         """Construct the subagent bus. Raises on init failure (e.g. PGMQ unreachable)."""
         self.bus = await make_subagent_bus()
         return self.bus
+
+    # ── Worker Host Facade ────────────────────────────────────────────
+
+    def _require_voice_worker(self) -> PipelineWorker:
+        if self.voice_worker is None:
+            raise RuntimeError("voice worker is not attached")
+        return self.voice_worker
+
+    @property
+    def name(self) -> str:
+        """Bus identity used by player-owned task agents."""
+        if self.voice_worker is None:
+            return PLAYER_AGENT_NAME
+        return self.voice_worker.name
+
+    @property
+    def active(self) -> bool:
+        """True while the player worker is accepting events."""
+        if self.voice_worker is None:
+            return True
+        return self.voice_worker.active
+
+    @property
+    def children(self):
+        return self._require_voice_worker().children
+
+    @property
+    def job_groups(self):
+        return self._require_voice_worker().job_groups
+
+    @property
+    def registry(self):
+        return self._require_voice_worker().registry
+
+    async def send_bus_message(self, message) -> None:
+        await self._require_voice_worker().send_bus_message(message)
+
+    async def add_worker(self, worker) -> None:
+        await self._require_voice_worker().add_worker(worker)
+
+    async def watch_worker(self, worker_name: str) -> None:
+        await self._require_voice_worker().watch_worker(worker_name)
+
+    async def cancel_job_group(self, job_id: str, *, reason: str | None = None) -> None:
+        await self._require_voice_worker().cancel_job_group(job_id, reason=reason)
+
+    async def request_job_update(self, job_id: str, worker_name: str) -> None:
+        await self._require_voice_worker().request_job_update(job_id, worker_name)
+
+    def create_task(self, *args, **kwargs):
+        return self._require_voice_worker().create_task(*args, **kwargs)
+
+    async def cancel_task(self, *args, **kwargs) -> None:
+        await self._require_voice_worker().cancel_task(*args, **kwargs)
+
+    async def queue_frame(self, frame) -> None:
+        """Queue a frame into the player voice pipeline."""
+        if self.voice_worker is not None:
+            await self.voice_worker.queue_frames([frame])
+
+    # ── Worker Event Bridge ───────────────────────────────────────────
+
+    def _install_worker_event_bridge(self, voice_worker: PipelineWorker) -> None:
+        if self._worker_event_bridge_installed:
+            return
+
+        @voice_worker.event_handler("on_worker_ready")
+        async def _orchestrator_worker_ready(_worker, data) -> None:
+            await self.on_worker_ready(data)
+
+        @voice_worker.event_handler("on_worker_failed")
+        async def _orchestrator_worker_failed(_worker, data) -> None:
+            await self.on_worker_failed(data)
+
+        @voice_worker.event_handler("on_job_update")
+        async def _orchestrator_job_update(_worker, message) -> None:
+            await self.on_job_update(message)
+
+        @voice_worker.event_handler("on_job_response")
+        async def _orchestrator_job_response(_worker, message) -> None:
+            await self.on_job_response(message)
+
+        @voice_worker.event_handler("on_bus_message")
+        async def _orchestrator_bus_message(_worker, message) -> None:
+            await self.on_bus_message(message)
+
+        self._worker_event_bridge_installed = True
+
+    async def on_worker_ready(self, data) -> None:
+        logger.info(f"{self.name}: {data.worker_name} ready")
+
+    async def on_worker_failed(self, data) -> None:
+        logger.warning(
+            f"{self.name}: {getattr(data, 'worker_name', '<unknown>')} failed: "
+            f"{getattr(data, 'error', '<unknown>')}"
+        )
+
+    async def on_job_update(self, message) -> None:
+        logger.trace(
+            f"{self.name}: job update from {getattr(message, 'source', '<unknown>')} "
+            f"job={getattr(message, 'job_id', '<unknown>')}"
+        )
+
+    async def on_job_response(self, message) -> None:
+        logger.trace(
+            f"{self.name}: job response from {getattr(message, 'source', '<unknown>')} "
+            f"job={getattr(message, 'job_id', '<unknown>')}"
+        )
+
+    async def on_bus_message(self, message) -> None:
+        logger.trace(f"{self.name}: bus message {type(message).__name__}")
+
+    # ── Join / Session Bootstrap ─────────────────────────────────────
 
     async def join(self) -> None:
         """Run the post-`on_client_ready` session bootstrap.
@@ -224,30 +343,7 @@ class Orchestrator:
             )
         )
 
-    async def close_tasks(self) -> None:
-        """Drain in-flight TaskAgent subworkers before resource teardown."""
-
-    async def close(self) -> None:
-        """Tear down session-owned resources."""
-        if self.event_relay is not None:
-            try:
-                await self.event_relay.close()
-            except Exception as exc:
-                logger.error(f"Event relay close failed: {exc}")
-            self.event_relay = None
-        if self.game_client is not None:
-            try:
-                await self.game_client.close()
-            except Exception as exc:
-                logger.error(f"Game client close failed: {exc}")
-            self.game_client = None
-
-    async def on_idle_report(self) -> bool:
-        """Narrate background task progress on user silence.
-
-        Returns True if a report was emitted, False to retry later.
-        """
-        return False
+    # ── Client Messages ──────────────────────────────────────────────
 
     async def handle_client_message(self, message) -> None:
         """Dispatch an inbound RTVI client message."""
@@ -259,7 +355,7 @@ class Orchestrator:
             return
         await self.client_messages.handle(message)
 
-    # ── TaskStateProvider surface (consumed by EventRelay) ────────────
+    # ── Event Relay Surface ──────────────────────────────────────────
 
     async def broadcast_game_event(
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
@@ -286,14 +382,31 @@ class Orchestrator:
         """True while an LLM tool call is in flight."""
         return False
 
-    @property
-    def active(self) -> bool:
-        """True while the orchestrator is accepting events."""
-        return True
+    # ── Idle reporting ───────────────────────────────────────────────
 
-    async def queue_frame(self, frame) -> None:
-        """Queue a frame into the voice pipeline worker."""
-        if self.voice_worker is not None:
-            await self.voice_worker.queue_frames([frame])
+    async def on_idle_report(self) -> bool:
+        """Narrate background task progress on user silence.
 
-    # ── Event Handlers ────────────
+        Returns True if a report was emitted, False to retry later.
+        """
+        return False
+
+    # ── Shutdown ─────────────────────────────────────────────────────
+
+    async def close_tasks(self) -> None:
+        """Drain in-flight TaskAgent subworkers before resource teardown."""
+
+    async def close(self) -> None:
+        """Tear down session-owned resources."""
+        if self.event_relay is not None:
+            try:
+                await self.event_relay.close()
+            except Exception as exc:
+                logger.error(f"Event relay close failed: {exc}")
+            self.event_relay = None
+        if self.game_client is not None:
+            try:
+                await self.game_client.close()
+            except Exception as exc:
+                logger.error(f"Game client close failed: {exc}")
+            self.game_client = None

@@ -13,6 +13,8 @@ import os
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+PLAYER_AGENT_NAME = "player"
+
 ENV_FILE = ".env.bot"
 load_dotenv(ENV_FILE, override=False)
 

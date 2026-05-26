@@ -21,7 +21,6 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
-from pipecat.registry.types import WorkerReadyData
 from pipecat.runner.types import DailyRunnerArguments, RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.transcriptions.language import Language
@@ -35,7 +34,7 @@ from pipecat.utils.context.llm_context_summarization import (
 )
 
 from gradientbang import STARTUP_BANNER, __version__
-from gradientbang.config import settings
+from gradientbang.config import PLAYER_AGENT_NAME, settings
 from gradientbang.game.auth import Auth, AuthError
 from gradientbang.game.base_client import RPCError
 from gradientbang.game.local_api_server import LocalApiServer
@@ -310,7 +309,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     # ── Pipeline ────────────────────────────────────────────────────────
     voice_llm = create_llm_service(get_voice_llm_config())
 
-    # The runner owns the pipeline worker and exposes the session bus.
+    # The runner owns the player worker and exposes the session bus.
     try:
         await orchestrator.create_bus()
     except Exception as exc:
@@ -323,7 +322,8 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     _log_boot_step("Session bus ready, building voice pipeline...")
 
-    # Main voice path: input audio -> STT -> LLM -> TTS -> output audio.
+    # The player worker runs the voice path directly:
+    # input audio -> STT -> LLM -> TTS -> output audio.
     main_pipeline = Pipeline(
         [
             transport.input(),
@@ -344,7 +344,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     voice_worker = PipelineWorker(
         main_pipeline,
-        name="main",
+        name=PLAYER_AGENT_NAME,
         params=PipelineParams(
             enable_metrics=True,
             enable_usage_metrics=True,
@@ -365,7 +365,8 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     if is_cekura_enabled():
         get_tracer().register_task_handlers(voice_worker, transport=transport)
 
-    # Join-time bootstrap needs the worker and shared LLM context.
+    # The orchestrator owns glue code; the player worker owns Pipecat lifecycle
+    # and bus identity.
     orchestrator.attach(
         voice_worker=voice_worker,
         context=context,
@@ -373,10 +374,6 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     )
 
     # ── Handlers ───────────────────────────────────────────────────────
-    @voice_worker.event_handler("on_worker_ready")
-    async def _log_worker_ready(_worker, data: WorkerReadyData) -> None:
-        logger.info(f"main: {data.worker_name} ready")
-
     @transport.event_handler("on_client_connected")
     async def _on_client_connected(transport, client):
         logger.info("Client connected")
