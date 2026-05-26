@@ -12,24 +12,28 @@ Gradient Bang is an online multiplayer universe where gameplay and systems are d
 
 Most important code in this repo:
 
-- `src/gradientbang/bot.py` - pipeline wiring, MainAgent (inline), client message handlers
-- `src/gradientbang/runtime/` - VoiceAgent, EventRelay, TaskAgent, UIAgent
+- `src/gradientbang/bot.py` - Pipecat session entrypoint and voice pipeline wiring
+- `src/gradientbang/runtime/` - Orchestrator, EventRelay, client messages, task agents, BYOA, bus protocol
+- `src/gradientbang/game/` - game API client and event transport adapters
 - `deployment/supabase/functions/` - all game server logic
 - `client/` - web client for the game
 
 ## Bot architecture
 
-`bot.py` creates all components and wires them together:
+Core runtime shape:
 
-- **MainAgent** (inline in `bot.py`) - `BaseAgent` owning transport pipeline (STT/TTS) with `BusBridgeProcessor`
-- **VoiceAgent** (`subagents/voice_agent.py`) - `LLMAgent` with 16 game tools; spawns TaskAgent children per task, broadcasts game events to bus
-- **TaskAgent** (`subagents/task_agent.py`) - `LLMAgent` with 31 game tools; self-contained autonomous agent, receives events via bus
-- **EventRelay** (`subagents/event_relay.py`) - single game event subscriber, declarative routing engine; feeds VoiceAgent which distributes to TaskAgents via bus
-- **UIAgent** (`subagents/ui_agent.py`) - parallel pipeline branch for autonomous UI control (not on bus)
+- The web client connects to the bot over WebRTC. Audio uses the WebRTC transport; RTVI messages flow both ways for client/server events and custom client messages.
+- `bot.py` builds the live Pipecat voice pipeline: transport, STT, voice LLM, TTS, aggregators, and the `player` `PipelineWorker`.
+- The `player` worker owns Pipecat lifecycle and bus identity. The voice LLM runs inline in this pipeline.
+- `Orchestrator` is a plain Python coordinator attached to the `player` worker. It owns session bootstrap, voice tools, client-message routing, event relay integration, task lifecycle, BYOA, and shutdown.
+- `AsyncGameClient` calls Supabase Edge Functions and manages session-scoped pubsub event delivery.
+- Edge Functions mutate database state and emit game events. The database is the source of truth for world state, ships, corporations, tasks, events, and BYOA config.
+- `EventRelay` receives game events and routes them to RTVI, voice LLM context, and the subagent bus.
+- `VoiceRuntime` binds the voice tool schema to Orchestrator handler methods.
+- `TaskAgent` workers are children of the `player` worker and communicate with Orchestrator over bus messages.
+- BYOA agents use the same bus protocol as in-process task agents, but are externally hosted and woken by the runtime.
 
-Tool schemas are defined once in `src/gradientbang/tools/` and shared by VoiceAgent, TaskAgent, and UIAgent.
-
-See `src/gradientbang/pipecat_server/subagents/CLAUDE.md` for detailed architecture docs.
+Tool schemas live in `src/gradientbang/runtime/tool_schema.py`.
 
 ## Local dev (quick)
 
