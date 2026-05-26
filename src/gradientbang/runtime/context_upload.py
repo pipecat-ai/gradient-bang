@@ -61,8 +61,8 @@ class VoiceContextUploader:
     def upload(self, reason: str) -> None:
         # Compaction closes an era — bump seq for the new era regardless of
         # whether this specific upload succeeded, was skipped (empty msgs),
-        # or raised. Matches the old bot.py pattern where the bump lived in
-        # the handler and ran after the try/except.
+        # or raised. This keeps each post-compaction context era in a distinct
+        # numbered snapshot.
         try:
             if not self._session_id:
                 return  # Refuse to overwrite — every snapshot needs a unique session.

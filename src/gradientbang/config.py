@@ -4,8 +4,8 @@ Loads `.env.bot` at import time and exposes a typed `settings` singleton
 listing every environment variable the app respects, with defaults and
 descriptions.
 
-Not yet wired into call sites — this file is the source-of-truth inventory.
-Change `ENV_FILE` below to load a different .env file.
+Prefer importing constants and ``settings`` from here for runtime code. Change
+``ENV_FILE`` below to load a different env file.
 """
 
 import os
@@ -168,22 +168,22 @@ class Settings(BaseModel):
         description="Override the generated subagent bus channel name. Normally auto-generated per bot instance.",
     )
 
-    # ===== LLM: voice agent =====
+    # ===== LLM: voice runtime =====
     VOICE_LLM_PROVIDER: str = Field(
         default="google",
-        description="Provider for the VoiceAgent LLM. One of 'openai', 'anthropic', 'google', 'minimax'.",
+        description="Provider for the voice runtime LLM. One of 'openai', 'anthropic', 'google', 'minimax'.",
     )
     VOICE_LLM_MODEL: str | None = Field(
         default=None,
-        description="Model ID for the VoiceAgent. Provider-specific default applies when unset.",
+        description="Model ID for the voice runtime. Provider-specific default applies when unset.",
     )
     VOICE_LLM_THINKING_BUDGET: int = Field(
         default=0,
-        description="Extended-thinking token budget for the VoiceAgent. 0 disables.",
+        description="Extended-thinking token budget for the voice runtime. 0 disables.",
     )
     VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: int = Field(
         default=20,
-        description="Per-tool-call timeout (seconds) for the VoiceAgent before falling back / cancelling.",
+        description="Per-tool-call timeout (seconds) for the voice runtime before falling back / cancelling.",
     )
 
     # ===== LLM: task agent =====
@@ -197,7 +197,7 @@ class Settings(BaseModel):
     )
     TASK_LLM_THINKING_BUDGET: int = Field(
         default=4096,
-        description="Extended-thinking token budget for TaskAgent. Higher than VoiceAgent because tasks are autonomous.",
+        description="Extended-thinking token budget for TaskAgent. Higher than voice runtime because tasks are autonomous.",
     )
     TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: int = Field(
         default=20,

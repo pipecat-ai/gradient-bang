@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMContext
 
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from gradientbang.utils.prompt_loader import build_task_agent_prompt
 
 

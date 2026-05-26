@@ -5,10 +5,9 @@ The bot constructs it from the RTVI start payload (with env-var fallbacks
 for local dev), calls ``authenticate()``, and then hands the populated
 object to the rest of the runtime.
 
-Consolidates what used to be split across:
+Consolidates session auth responsibilities that used to be split across:
   - ``utils/access_token.py`` (JWT preflight)
-  - the old bot startup path (identity resolution, env fallback, and
-    display-name lookup)
+  - bot startup identity resolution, env fallback, and display-name lookup
 """
 
 from __future__ import annotations
@@ -130,7 +129,6 @@ class Auth:
         # No hint or env override — look up via the authenticated API.
         # Throwaway client: enable_event_polling=False skips pubsub session,
         # heartbeat, and event adapter — it's just an httpx wrapper for one RPC.
-        # Mirrors `_lookup_character_display_name` from the legacy bot.py.
         try:
             async with AsyncGameClient(
                 character_id=self.character_id,

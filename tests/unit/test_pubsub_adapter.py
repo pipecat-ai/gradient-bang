@@ -8,7 +8,7 @@ import pytest
 
 from gradientbang.game.transport import pubsub as pubsub_module
 from gradientbang.game.transport.pubsub import DEFAULT_QTY, PubsubEventAdapter
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.game.client import AsyncGameClient
 
 
 PLAYER_ID = "11111111-1111-1111-1111-111111111111"
@@ -21,6 +21,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGameClient:
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")
     monkeypatch.setenv("SUPABASE_URL", "http://localhost:54321")
     return AsyncGameClient(
+        base_url="http://localhost:54321",
         character_id=PLAYER_ID,
         enable_event_polling=False,
     )

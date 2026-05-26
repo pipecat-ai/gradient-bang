@@ -7,12 +7,12 @@ import pytest
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.services.llm_service import FunctionCallParams
 
-from gradientbang.pipecat_server.subagents.task_agent import (
+from gradientbang.runtime.subagents.task_agent import (
     ASYNC_TOOL_COMPLETIONS,
     PLAYER_ONLY_TOOLS,
     TaskAgent,
 )
-from gradientbang.pipecat_server.subagents.bus_messages import BusByoaPresenceMessage
+from gradientbang.runtime.bus import BusByoaPresenceMessage
 from pipecat.pipeline.job_context import JobStatus
 from pipecat.bus import (
     BusJobCancelMessage,
@@ -28,7 +28,7 @@ def _make_task_agent(**overrides):
     """Create a TaskAgent with mock dependencies.
 
     Phase 1: TaskAgent no longer takes ``game_client`` — every game RPC
-    goes over the bus to VoiceAgent's broker. For test ergonomics we
+    goes over the bus to Orchestrator's broker. For test ergonomics we
     attach a ``_game_client`` MagicMock to the returned agent and
     install a simulated broker on ``agent.send_message`` that dispatches
     outbound Phase 1 bus RPCs against that mock. So tests can keep
@@ -37,7 +37,7 @@ def _make_task_agent(**overrides):
     """
     import asyncio as _asyncio
 
-    from gradientbang.pipecat_server.subagents.bus_messages import (
+    from gradientbang.runtime.bus import (
         BusCombatStrategyRequest,
         BusCombatStrategyResponse,
         BusCorporationQueryRequest,
@@ -68,7 +68,7 @@ def _make_task_agent(**overrides):
             method = getattr(agent._game_client, message.tool_name, None)
             if method is None or not callable(method):
                 response = BusGameToolCallResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=agent.name,
                     correlation_id=message.correlation_id,
                     error=f"unknown tool: {message.tool_name!r}",
@@ -83,14 +83,14 @@ def _make_task_agent(**overrides):
                     raw = await method(**call_kwargs)
                     result = raw if isinstance(raw, dict) else {"result": raw}
                     response = BusGameToolCallResponse(
-                        source="voice_agent",
+                        source="orchestrator",
                         target=agent.name,
                         correlation_id=message.correlation_id,
                         result=result,
                     )
                 except Exception as exc:
                     response = BusGameToolCallResponse(
-                        source="voice_agent",
+                        source="orchestrator",
                         target=agent.name,
                         correlation_id=message.correlation_id,
                         error=str(exc),
@@ -102,14 +102,14 @@ def _make_task_agent(**overrides):
                     call_kwargs["ship_id"] = message.ship_id
                 raw = await agent._game_client.combat_get_strategy(**call_kwargs)
                 response = BusCombatStrategyResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=agent.name,
                     correlation_id=message.correlation_id,
                     strategy=raw if isinstance(raw, dict) else {"strategy": raw},
                 )
             except Exception as exc:
                 response = BusCombatStrategyResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=agent.name,
                     correlation_id=message.correlation_id,
                     error=str(exc),
@@ -132,14 +132,14 @@ def _make_task_agent(**overrides):
                         {"character_id": message.character_id},
                     )
                 response = BusCorporationQueryResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=agent.name,
                     correlation_id=message.correlation_id,
                     result=raw if isinstance(raw, dict) else {"result": raw},
                 )
             except Exception as exc:
                 response = BusCorporationQueryResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=agent.name,
                     correlation_id=message.correlation_id,
                     error=str(exc),
@@ -283,8 +283,8 @@ class TestTaskAgentTools:
         assert ASYNC_TOOL_COMPLETIONS["combat_initiate"] == "combat.round_waiting"
         assert ASYNC_TOOL_COMPLETIONS["combat_action"] == "combat.action_accepted"
 
-    @patch("gradientbang.pipecat_server.subagents.task_agent.create_llm_service")
-    @patch("gradientbang.pipecat_server.subagents.task_agent.get_task_agent_llm_config")
+    @patch("gradientbang.runtime.subagents.task_agent.create_llm_service")
+    @patch("gradientbang.runtime.subagents.task_agent.get_task_agent_llm_config")
     def test_create_llm_registers_catch_all(self, _mock_config, mock_create):
         mock_llm = MagicMock()
         mock_create.return_value = mock_llm
@@ -367,7 +367,7 @@ class TestBusEventReception:
     """TaskAgent receives game events via BusGameEventMessage."""
 
     async def test_processes_event_matching_task_id(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-uuid-123"
@@ -382,7 +382,7 @@ class TestBusEventReception:
         agent._handle_event.assert_called_once()
 
     async def test_event_with_event_id_is_processed_without_blocking(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-uuid-123"
@@ -455,7 +455,7 @@ class TestBusEventReception:
         assert agent._last_handled_event_id == 110
 
     async def test_bus_event_with_no_summary_does_not_leak_internal_metadata(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent(character_id="char-123")
         agent._active_task_id = "task-uuid-123"
@@ -484,7 +484,7 @@ class TestBusEventReception:
         assert "recipient_ids" not in output_text
 
     async def test_ignores_event_for_other_task(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-uuid-123"
@@ -499,7 +499,7 @@ class TestBusEventReception:
         agent._handle_event.assert_not_called()
 
     async def test_processes_untagged_matching_character_event_when_awaited(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent(character_id="ship-456")
         agent._active_task_id = "task-uuid-123"
@@ -515,7 +515,7 @@ class TestBusEventReception:
         agent._handle_event.assert_called_once()
 
     async def test_ignores_unscoped_character_event_when_not_awaited(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent(character_id="ship-456")
         agent._active_task_id = "task-uuid-123"
@@ -531,7 +531,7 @@ class TestBusEventReception:
         agent._handle_event.assert_not_called()
 
     async def test_ignores_combat_event_for_other_ship(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent(character_id="ship-2")
         agent._active_task_id = "task-uuid-123"
@@ -549,7 +549,7 @@ class TestBusEventReception:
         agent._handle_event.assert_not_called()
 
     async def test_processes_combat_event_for_own_ship(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent(character_id="ship-2")
         agent._active_task_id = "task-uuid-123"
@@ -567,7 +567,7 @@ class TestBusEventReception:
         agent._handle_event.assert_called_once()
 
     async def test_ignores_destroyed_event_for_other_ship(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent(character_id="ship-2")
         agent._active_task_id = "task-uuid-123"
@@ -588,7 +588,7 @@ class TestBusEventReception:
         agent._handle_event.assert_not_called()
 
     async def test_ignores_when_no_active_task(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = None
@@ -602,7 +602,7 @@ class TestBusEventReception:
         agent._handle_event.assert_not_called()
 
     async def test_accepts_awaited_event_query_by_request_id(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-uuid-123"
@@ -619,7 +619,7 @@ class TestBusEventReception:
         agent._handle_event.assert_called_once()
 
     async def test_ignores_unmatched_event_query_request_id(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-uuid-123"
@@ -636,7 +636,7 @@ class TestBusEventReception:
         agent._handle_event.assert_not_called()
 
     async def test_bus_event_query_uses_summary_not_raw_payload(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.runtime.bus import BusGameEventMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-uuid-123"
@@ -665,7 +665,7 @@ class TestBusEventReception:
 @pytest.mark.unit
 class TestSteering:
     async def test_steering_injected_into_context(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
+        from gradientbang.runtime.bus import BusSteerTaskMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
@@ -681,7 +681,7 @@ class TestSteering:
         assert "Change direction" in agent._llm_context.add_message.call_args[0][0]["content"]
 
     async def test_steering_for_other_target_ignored(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
+        from gradientbang.runtime.bus import BusSteerTaskMessage
 
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
@@ -736,7 +736,7 @@ class TestTaskIdTagging:
         """Phase 1: TaskAgent no longer mutates the broker's game_client.
         The broker tags current_task_id per-call from the inbound
         BusGameToolCallRequest's task_id — exercised in
-        test_voice_agent_bus_broker.TestGameToolCallBroker.
+        test_orchestrator_bus_broker.TestGameToolCallBroker.
         """
         agent = _make_task_agent(tag_outbound_rpcs_with_task_id=True)
         agent._llm_context = MagicMock()
@@ -825,7 +825,7 @@ class TestTaskIdTagging:
 
     async def test_corp_task_completion_does_not_mutate_shared_client(self):
         """Phase 1: TaskAgent never reaches into the shared game client.
-        The broker (VoiceAgent) is responsible for tagging
+        The broker (Orchestrator) is responsible for tagging
         current_task_id per outbound call. _complete_task should leave
         the field alone whatever its value was before.
         """
@@ -846,7 +846,7 @@ class TestTaskOutputDelivery:
     async def test_action_output_uses_captured_task_route(self):
         agent = _make_task_agent()
         agent._active_task_id = "framework-task"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         agent.send_bus_message = AsyncMock()
 
         agent._output('move({"to_sector": 5})', TaskOutputType.ACTION)
@@ -859,7 +859,7 @@ class TestTaskOutputDelivery:
         message = agent.send_bus_message.call_args.args[0]
         assert isinstance(message, BusJobUpdateMessage)
         assert message.job_id == "framework-task"
-        assert message.target == "voice_agent"
+        assert message.target == "orchestrator"
         assert message.update == {
             "type": "output",
             "text": 'move({"to_sector": 5})',
@@ -869,7 +869,7 @@ class TestTaskOutputDelivery:
     async def test_complete_task_drains_pending_output_before_response(self):
         agent = _make_task_agent()
         agent._active_task_id = "framework-task"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         agent._active_task_id = "task-1"
         agent._task_finished_status = "completed"
         agent._task_finished_message = "Done"
@@ -892,7 +892,7 @@ class TestTaskOutputDelivery:
     async def test_task_output_delivery_failure_is_logged_and_completion_continues(self):
         agent = _make_task_agent()
         agent._active_task_id = "framework-task"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         agent._active_task_id = "task-1"
         agent._task_finished_status = "completed"
         agent._task_finished_message = "Done"
@@ -901,7 +901,7 @@ class TestTaskOutputDelivery:
 
         agent._output("my_status({})", TaskOutputType.ACTION)
 
-        with patch("gradientbang.pipecat_server.subagents.task_agent.logger.warning") as warn:
+        with patch("gradientbang.runtime.subagents.task_agent.logger.warning") as warn:
             await agent._complete_task()
 
         warn.assert_called()
@@ -1000,7 +1000,7 @@ class TestEventQueryCompletionCorrelation:
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
         agent._active_task_id = "framework-task"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         params = _make_function_call_params(
             "event_query",
             {"start": "2026-03-27T00:00:00Z", "end": "2026-03-28T00:00:00Z"},
@@ -1021,7 +1021,7 @@ class TestEventQueryCompletionCorrelation:
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
         agent._active_task_id = "framework-task"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         params = _make_function_call_params(
             "event_query",
             {"start": "2026-03-27T00:00:00Z", "end": "2026-03-28T00:00:00Z"},
@@ -1031,7 +1031,7 @@ class TestEventQueryCompletionCorrelation:
         with (
             patch.object(agent, "_get_tool_handler", return_value=handler),
             patch.object(agent, "_on_tool_call_completed", AsyncMock()),
-            patch("gradientbang.pipecat_server.subagents.task_agent.logger.warning") as warn,
+            patch("gradientbang.runtime.subagents.task_agent.logger.warning") as warn,
         ):
             await agent._handle_function_call(params)
 
@@ -1076,7 +1076,7 @@ class TestEventQueryCompletionCorrelation:
         agent._awaiting_completion_request_id = "req-123"
         agent._schedule_pending_inference = AsyncMock()
 
-        with patch("gradientbang.pipecat_server.subagents.task_agent.logger.warning") as warn:
+        with patch("gradientbang.runtime.subagents.task_agent.logger.warning") as warn:
             await agent._on_completion_event_timeout()
 
         assert agent._awaiting_completion_event is None
@@ -1126,7 +1126,7 @@ class TestPipelineErrorFailureHandling:
     async def test_on_error_fails_task_normally(self):
         agent = _make_task_agent()
         agent._active_task_id = "framework-task"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         agent._active_task_id = "task-1"
         agent._game_client.task_lifecycle = AsyncMock()
         agent.send_job_response = AsyncMock()
@@ -1153,7 +1153,7 @@ class TestPipelineErrorFailureHandling:
     async def test_on_error_is_idempotent(self):
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         agent._game_client.task_lifecycle = AsyncMock()
         agent.send_job_response = AsyncMock()
 
@@ -1167,7 +1167,7 @@ class TestPipelineErrorFailureHandling:
 @pytest.mark.unit
 class TestCombatPreamble:
     """Round-1 combat.round_waiting prepends combat.md + ship doctrine to
-    the TaskAgent's LLM context — same fixed order the player voice agent
+    the TaskAgent's LLM context — same fixed order the player orchestrator
     uses in EventRelay (combat.md → doctrine → event XML). Applies to both
     corp ships and player ship task agents."""
 
@@ -1196,7 +1196,7 @@ class TestCombatPreamble:
         agent = _make_task_agent(character_id=character_id, is_corp_ship=True)
         agent._active_task_id = "task-uuid-1"
         # Phase 1: outbound bus RPCs need a known broker target.
-        agent._task_requester = "voice_agent"
+        agent._task_requester = "orchestrator"
         agent._llm_context = MagicMock()
         # Default: an authored 'offensive' doctrine. Individual tests
         # override to exercise the unset → default-balanced fallback.

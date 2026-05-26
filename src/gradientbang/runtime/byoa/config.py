@@ -6,8 +6,8 @@ external BYOA operators construct their own dataclass instance directly.
 
 Ship-task locks are per-bot, in-memory — there is no server-side stale
 window or heartbeat. Crash detection is via the BYOA presence heartbeat
-the agent broadcasts on the bus (see VoiceAgent._byoa_presence_sweep_loop)
-combined with the bot's ``TASK_AGENT_TIMEOUT`` sanity bound.
+the agent broadcasts on the bus, combined with the Orchestrator's
+``TASK_AGENT_TIMEOUT`` sanity bound.
 
 See docs/setup-byoa.md for the operator-facing env table.
 """
@@ -29,10 +29,10 @@ class ByoaAgentConfig:
     # BYOA TaskAgent.
     tool_call_timeout_seconds: float = 30.0
 
-    # How long VoiceAgent waits for a target agent to signal alive after
-    # start_task (via BusAgentHelloRequest/Response). Read by the bot, not
-    # by BYOA — operators setting BYOA_AGENT_WAKE_TIMEOUT_SECONDS on their
-    # sandbox have no effect. Generous enough to cover sandbox cold starts.
+    # How long the Orchestrator waits for a target agent to signal alive
+    # after start_task (via BusAgentHelloRequest/Response). Read by the bot,
+    # not by BYOA — operators setting BYOA_AGENT_WAKE_TIMEOUT_SECONDS on
+    # their sandbox have no effect. Generous enough to cover sandbox cold starts.
     agent_wake_timeout_seconds: float = 30.0
 
     # How long an idle in-process corp-ship agent stays around before

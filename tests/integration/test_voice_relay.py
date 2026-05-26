@@ -1,4 +1,4 @@
-"""Full integration tests: EventRelay + VoiceAgent with real DB fixtures.
+"""Full integration tests: EventRelay + Orchestrator with real DB fixtures.
 
 Requires a running Supabase instance with edge functions (server.ts).
 Run via: bash scripts/run-integration-tests.sh

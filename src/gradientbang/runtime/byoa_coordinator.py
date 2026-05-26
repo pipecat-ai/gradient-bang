@@ -19,8 +19,8 @@ from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageF
 
 from gradientbang.runtime.byoa import ByoaAgentConfig
 from gradientbang.runtime.bus import BusByoaPresenceMessage
-from gradientbang.utils.api_client import RPCError
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.game.base_client import RPCError
+from gradientbang.game.client import AsyncGameClient
 
 
 PRESENCE_STALE_SECONDS = 25.0

@@ -2,7 +2,7 @@
 
 import pytest
 
-from gradientbang.pipecat_server.voices import (
+from gradientbang.runtime.voices import (
     CARTESIA_VOICES,
     DEFAULT_VOICE,
     GRADIUM_DEFAULT_VOICE_ID,

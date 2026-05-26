@@ -1199,10 +1199,9 @@ class EventRelay:
         the initial state, and emit the side-channel side effects that
         aren't part of the LLM context.
 
-        Specifically: relay chat history to the web UI and emit the
-        ``session.version`` RTVI event. Bootstrap data for the LLM
-        context lives in ``session_init.gather_initial_state``; this
-        method only handles the bits that don't belong there.
+        Specifically: relay chat history to the web UI. Bootstrap data for
+        the LLM context lives in ``session_init.gather_initial_state``;
+        this method only handles the side-channel state.
         """
         self._session_started_at = session_started_at
         self.display_name = display_name

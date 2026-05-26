@@ -7,7 +7,7 @@ import pytest
 
 from gradientbang.utils.formatting import extract_display_name
 
-from gradientbang.pipecat_server.subagents.event_relay import (
+from gradientbang.runtime.event_relay import (
     EVENT_CONFIGS,
     EventRelay,
     Priority,
@@ -42,7 +42,9 @@ class StubTaskState:
         # it False to exercise the inactive path.
         self.active: bool = True
 
-    async def broadcast_game_event(self, event: Dict[str, Any], *, voice_agent_originated: bool = False) -> None:
+    async def broadcast_game_event(
+        self, event: Dict[str, Any], *, voice_agent_originated: bool = False
+    ) -> None:
         self.broadcast_events.append(event)
 
     def is_our_task(self, task_id: str) -> bool:
@@ -762,7 +764,7 @@ class TestCombatPOVSummaries:
     # ── garrison.destroyed ──────────────────────────────────────────
 
     def test_garrison_destroyed_owner(self):
-        from gradientbang.pipecat_server.subagents.event_relay import (
+        from gradientbang.runtime.event_relay import (
             _summarize_garrison_destroyed,
         )
 
@@ -784,7 +786,7 @@ class TestCombatPOVSummaries:
         )
 
     def test_garrison_destroyed_observer(self):
-        from gradientbang.pipecat_server.subagents.event_relay import (
+        from gradientbang.runtime.event_relay import (
             _summarize_garrison_destroyed,
         )
 
@@ -1484,7 +1486,7 @@ class TestTaskCancelEvent:
         assert len(task_state.broadcast_events) == 1
 
     async def test_cancel_not_appended_to_llm(self):
-        """VoiceAgent already injects a task.cancelled deferred update, so the
+        """Orchestrator already injects a task.cancelled deferred update, so the
         server's task.cancel must not double-up the LLM context."""
         relay, task_state, _, _ = _make_relay()
         event = _make_event("task.cancel", {"task_id": "full-uuid-1"})
@@ -1557,7 +1559,7 @@ class TestInferenceTriggeringLogic:
         if llm_calls:
             assert llm_calls[0][0][0].run_llm is False
 
-    async def test_voice_agent_inference_triggers_with_request_id(self):
+    async def test_orchestrator_inference_triggers_with_request_id(self):
         """VOICE_AGENT rule triggers inference when request_id matches."""
         relay, task_state, _, mock_rtvi = _make_relay()
         task_state.recent_request_ids.add("req-1")
@@ -1722,7 +1724,7 @@ class TestAppendRuleDirect:
         assert len(task_state.deferred_events) == 0
 
     async def test_task_scoped_direct_needs_allowlist_or_voice(self):
-        """Direct event with task_id only appended if task_scoped_allowlisted or voice agent."""
+        """Direct event with task_id only appended if task_scoped_allowlisted or orchestrator."""
         relay, task_state, _, mock_rtvi = _make_relay()
         # path.region has task_scoped_allowlisted=False
         event = _make_event(
@@ -1749,11 +1751,11 @@ class TestAppendRuleDirect:
         await relay._relay_event(event)
         assert len(task_state.deferred_events) == 1
 
-    async def test_task_scoped_voice_agent_passes_through(self):
-        """Direct event with task_id passes if request_id is from voice agent."""
+    async def test_task_scoped_orchestrator_passes_through(self):
+        """Direct event with task_id passes if request_id is from orchestrator."""
         relay, task_state, _, mock_rtvi = _make_relay()
         task_state.recent_request_ids.add("req-voice")
-        # path.region is NOT task_scoped_allowlisted but voice agent request passes
+        # path.region is NOT task_scoped_allowlisted but orchestrator request passes
         event = _make_event(
             "path.region",
             {
@@ -1766,7 +1768,7 @@ class TestAppendRuleDirect:
         assert len(task_state.deferred_events) == 1
 
     async def test_corp_scope_with_own_action_and_voice(self):
-        """Corp-scoped event appended when corp_scope_if_own_action=True and voice agent."""
+        """Corp-scoped event appended when corp_scope_if_own_action=True and orchestrator."""
         relay, task_state, _, mock_rtvi = _make_relay()
         task_state.recent_request_ids.add("req-voice")
         event = _make_event(
@@ -1903,7 +1905,7 @@ class TestInferenceRules:
         _, run_llm = task_state.deferred_events[0]
         assert run_llm is True
 
-    async def test_quest_uses_voice_agent_inference(self):
+    async def test_quest_uses_orchestrator_inference(self):
         """quest.step_completed uses VOICE_AGENT — no inference without request_id."""
         relay, task_state, _, _ = _make_relay()
         event = _make_event(
@@ -1916,7 +1918,7 @@ class TestInferenceRules:
         assert run_llm is False
 
     async def test_quest_triggers_with_voice_request_id(self):
-        """quest.step_completed triggers inference when voice agent request_id matches."""
+        """quest.step_completed triggers inference when orchestrator request_id matches."""
         relay, task_state, _, _ = _make_relay()
         task_state.recent_request_ids.add("req-quest")
         event = _make_event(
@@ -1930,7 +1932,7 @@ class TestInferenceRules:
         assert run_llm is True
 
     async def test_ports_list_never_appended_with_matching_request(self):
-        """ports.list is AppendRule.NEVER — voice agent gets data via the direct-response
+        """ports.list is AppendRule.NEVER — orchestrator gets data via the direct-response
         tool result, so the follow-up event must not duplicate it in LLM context."""
         relay, task_state, _, _ = _make_relay()
         relay._onboarding_pending = False
@@ -1973,7 +1975,7 @@ class TestInferenceRules:
         await relay._relay_event(event)
         assert task_state.deferred_events == []
 
-    async def test_voice_agent_without_matching_request(self):
+    async def test_orchestrator_without_matching_request(self):
         """InferenceRule.VOICE_AGENT — False when request_id doesn't match.
 
         course.plot still exercises this rule; ports.list switched to NEVER.

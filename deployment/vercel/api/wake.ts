@@ -1,7 +1,7 @@
 /**
  * BYOA wake receiver — deployed to the operator's Vercel project. The wake
  * contract is defined in docs/byoa.md ("How wake works") and mirrored by the
- * local-dev daemon in src/gradientbang/byoa/serve.py.
+ * local-dev daemon in src/gradientbang/runtime/byoa/serve.py.
  *
  * On every wake POST from wake_agent:
  *

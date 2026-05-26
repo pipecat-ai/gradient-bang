@@ -14,7 +14,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -25,7 +25,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusSteerTaskMessage,
     BusTaskFinishNotification,
 )
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from pipecat.bus import BusJobCancelMessage, BusJobRequestMessage
 
 
@@ -126,7 +126,7 @@ class TaskAgentHarness:
         if method is None or not callable(method):
             await self._deliver_response(
                 BusGameToolCallResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=self.agent.name,
                     correlation_id=message.correlation_id,
                     error=f"unknown tool: {message.tool_name!r}",
@@ -142,14 +142,14 @@ class TaskAgentHarness:
             raw = await method(**kwargs)
             result = raw if isinstance(raw, dict) else {"result": raw}
             response = BusGameToolCallResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 result=result,
             )
         except Exception as exc:
             response = BusGameToolCallResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 error=str(exc),
@@ -164,14 +164,14 @@ class TaskAgentHarness:
             raw = await self.game_client.combat_get_strategy(**kwargs)
             strategy = raw if isinstance(raw, dict) else {"strategy": raw}
             response = BusCombatStrategyResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 strategy=strategy,
             )
         except Exception as exc:
             response = BusCombatStrategyResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 error=str(exc),
@@ -194,14 +194,14 @@ class TaskAgentHarness:
                 )
             result = raw if isinstance(raw, dict) else {"result": raw}
             response = BusCorporationQueryResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 result=result,
             )
         except Exception as exc:
             response = BusCorporationQueryResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 error=str(exc),
@@ -219,10 +219,10 @@ class TaskAgentHarness:
     async def start_task(self, job_id="task-001", description="Test task"):
         """Simulate receiving a task request."""
         self.agent._active_task_id = job_id
-        self.agent._task_requester = "voice_agent"
+        self.agent._task_requester = "orchestrator"
         await self.agent.on_job_request(
             BusJobRequestMessage(
-                source="voice_agent",
+                source="orchestrator",
                 job_id=job_id,
                 payload={"task_description": description},
             )
@@ -274,7 +274,7 @@ class TestTaskLifecycle:
         # First inference triggered
         assert len(h.queued_frames) > 0
 
-        # task.start emission is owned by VoiceAgent (pre-spawn acquire);
+        # task.start emission is owned by Orchestrator (pre-spawn acquire);
         # TaskAgent no longer re-emits it. task.finish still goes through
         # TaskAgent's game_client and is exercised by other tests.
         start_calls = [
@@ -287,7 +287,7 @@ class TestTaskLifecycle:
     async def test_task_request_no_longer_mutates_game_client_task_id(self):
         """Phase 1: TaskAgent doesn't touch the game client's current_task_id
         anymore. The broker tags it per-call instead — covered by
-        test_voice_agent_bus_broker.TestGameToolCallBroker.
+        test_orchestrator_bus_broker.TestGameToolCallBroker.
         """
         h = TaskAgentHarness()
         await h.start_task(job_id="task-xyz")
@@ -533,7 +533,7 @@ class TestCancellationIntegration:
         await h.start_task(job_id="task-001")
         h.agent._llm_inflight = False
 
-        await h.agent.on_job_cancelled(BusJobCancelMessage(source="voice_agent", job_id="task-001", reason="User cancelled"))
+        await h.agent.on_job_cancelled(BusJobCancelMessage(source="orchestrator", job_id="task-001", reason="User cancelled"))
 
         assert h.agent._cancelled is True
         # task.finish emitted

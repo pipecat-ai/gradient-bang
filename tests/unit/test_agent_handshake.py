@@ -1,7 +1,7 @@
 """BYOA wake-up handshake regression tests.
 
   - TaskAgent only responds ``ready=True`` after its LLM context is up.
-  - VoiceAgent's hello-response correlator hands the awaiting future the
+  - Orchestrator's hello-response correlator hands the awaiting future the
     right result (or rejects with the agent's error on ``ready=False``).
   - The hello sender wraps a fresh ``correlation_id`` and the configured
     timeout.
@@ -22,8 +22,9 @@ from gradientbang.runtime.bus import (
     BUS_PROTOCOL_VERSION,
 )
 from gradientbang.runtime.subagents.task_agent import TaskAgent
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.runtime.orchestrator import Orchestrator
 from pipecat.bus import BusEndWorkerMessage
+from .runtime_test_helpers import make_orchestrator
 
 
 # ── TaskAgent side ───────────────────────────────────────────────────
@@ -50,7 +51,7 @@ class TestTaskAgentHelloHandler:
 
         await agent.on_bus_message(
             BusAgentHelloRequest(
-                source="voice_agent",
+                source="orchestrator",
                 target=agent.name,
                 correlation_id="hello-1",
             )
@@ -61,7 +62,7 @@ class TestTaskAgentHelloHandler:
         assert sent.correlation_id == "hello-1"
         assert sent.ready is True
         assert sent.error is None
-        assert sent.target == "voice_agent"
+        assert sent.target == "orchestrator"
         assert sent.protocol_version == BUS_PROTOCOL_VERSION
 
     @pytest.mark.asyncio
@@ -72,7 +73,7 @@ class TestTaskAgentHelloHandler:
 
         await agent.on_bus_message(
             BusAgentHelloRequest(
-                source="voice_agent",
+                source="orchestrator",
                 target=agent.name,
                 correlation_id="hello-2",
             )
@@ -90,7 +91,7 @@ class TestTaskAgentHelloHandler:
 
         await agent.on_bus_message(
             BusAgentHelloRequest(
-                source="voice_agent",
+                source="orchestrator",
                 target="some_other_agent",
                 correlation_id="hello-3",
             )
@@ -197,10 +198,10 @@ class TestIdleTeardownTimer:
         assert agent._idle_teardown_handle is None
 
 
-# ── VoiceAgent side ──────────────────────────────────────────────────
+# ── Orchestrator side ──────────────────────────────────────────────────
 
 
-def _make_voice_agent() -> VoiceAgent:
+def _make_orchestrator() -> Orchestrator:
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.current_task_id = None
@@ -208,22 +209,18 @@ def _make_voice_agent() -> VoiceAgent:
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
 
-    mock_rtvi = MagicMock()
-    mock_rtvi.push_frame = AsyncMock()
-
-    return VoiceAgent(
-        "player",
+    return make_orchestrator(
         game_client=mock_game_client,
         character_id="char-123",
-        rtvi_processor=mock_rtvi,
+        rtvi=MagicMock(push_frame=AsyncMock()),
     )
 
 
 @pytest.mark.unit
-class TestVoiceAgentHelloSender:
+class TestOrchestratorHelloSender:
     @pytest.mark.asyncio
     async def test_send_hello_resolves_on_ready_response(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
 
         # Capture the correlation_id used by the request so we can
@@ -252,7 +249,7 @@ class TestVoiceAgentHelloSender:
 
     @pytest.mark.asyncio
     async def test_send_hello_times_out_when_no_response(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()  # never resolves the future
         agent._byoa_config = type(agent._byoa_config)(
             tool_call_timeout_seconds=30.0,
@@ -265,7 +262,7 @@ class TestVoiceAgentHelloSender:
 
     @pytest.mark.asyncio
     async def test_unready_response_rejects_with_error(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
 
         async def _capture_and_respond(message):
@@ -294,16 +291,16 @@ class TestVoiceAgentHelloSender:
 class TestRollbackOnHandshakeTimeout:
     @pytest.mark.asyncio
     async def test_rollback_releases_lock_and_ends_agent(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
-        agent.job_groups.clear()
+        agent.voice_worker.job_groups.clear()
 
         # Pretend the spawn already happened: child + lock map populated.
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc"
         child._character_id = "corp-ship-1"
         child._is_corp_ship = True
-        agent._children = [child]
+        agent.voice_worker._children = [child]
         agent._locked_ships = {"corp-ship-1": "framework-task-1"}
 
         await agent._rollback_failed_spawn(

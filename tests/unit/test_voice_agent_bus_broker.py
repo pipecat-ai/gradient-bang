@@ -1,4 +1,4 @@
-"""Tests for VoiceAgent's Phase 1 BYOA broker.
+"""Tests for the Orchestrator BYOA broker.
 
 Each test sends an inbound bus message through the broker's
 ``on_bus_message`` (via the typed dispatcher), mocks ``AsyncGameClient``,
@@ -19,7 +19,7 @@ import pytest
 from pipecat.pipeline.job_context import JobStatus
 from pipecat.bus import BusJobResponseMessage, BusJobUpdateMessage
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -28,10 +28,11 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusGameToolCallResponse,
     BusTaskFinishNotification,
 )
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.runtime.orchestrator import Orchestrator
+from .runtime_test_helpers import make_orchestrator
 
 
-def _make_voice_agent() -> VoiceAgent:
+def _make_orchestrator() -> Orchestrator:
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.current_task_id = None
@@ -39,20 +40,16 @@ def _make_voice_agent() -> VoiceAgent:
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
 
-    mock_rtvi = MagicMock()
-    mock_rtvi.push_frame = AsyncMock()
-
-    agent = VoiceAgent(
-        "player",
+    agent = make_orchestrator(
         game_client=mock_game_client,
         character_id="char-123",
-        rtvi_processor=mock_rtvi,
+        rtvi=MagicMock(push_frame=AsyncMock()),
     )
     agent.send_bus_message = AsyncMock()
     return agent
 
 
-def _last_sent_message(agent: VoiceAgent):
+def _last_sent_message(agent: Orchestrator):
     assert agent.send_bus_message.await_count >= 1
     return agent.send_bus_message.await_args_list[-1].args[0]
 
@@ -64,7 +61,7 @@ def _last_sent_message(agent: VoiceAgent):
 class TestGameToolCallBroker:
     @pytest.mark.asyncio
     async def test_dispatches_method_with_overridden_identity(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.move = AsyncMock(return_value={"new_sector": 5})
 
         msg = BusGameToolCallRequest(
@@ -97,9 +94,9 @@ class TestGameToolCallBroker:
         per-asyncio-Task, so two concurrent brokered RPCs can never
         cross-tag each other's events.
         """
-        from gradientbang.utils.supabase_client import _per_call_task_id
+        from gradientbang.game.client import _per_call_task_id
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         captured: list = []
 
         async def move_check(**_kwargs):
@@ -130,12 +127,12 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_identity_propagated_via_per_call_contextvars(self):
-        from gradientbang.utils.supabase_client import (
+        from gradientbang.game.client import (
             _per_call_actor_character_id,
             _per_call_character_id,
         )
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         captured: list[tuple[str | None, str | None]] = []
 
         async def get_ship_definitions_check(**_kwargs):
@@ -168,13 +165,13 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_task_id_contextvar_resets_on_exception(self):
-        from gradientbang.utils.supabase_client import (
+        from gradientbang.game.client import (
             _per_call_actor_character_id,
             _per_call_character_id,
             _per_call_task_id,
         )
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.move = AsyncMock(side_effect=RuntimeError("boom"))
         agent._game_client.current_task_id = "should-not-leak"
 
@@ -205,12 +202,12 @@ class TestGameToolCallBroker:
         fields into ``args``. The broker strips identity args and carries
         the envelope identity through ContextVars.
         """
-        from gradientbang.utils.supabase_client import (
+        from gradientbang.game.client import (
             _per_call_actor_character_id,
             _per_call_character_id,
         )
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         captured: list[tuple[str | None, str | None]] = []
 
         async def move_check(**_kwargs):
@@ -249,7 +246,7 @@ class TestGameToolCallBroker:
         The broker supplies that local id only; the corp-ship envelope id is
         applied later at payload injection.
         """
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         captured: list[str] = []
 
         async def my_status_check(character_id: str):
@@ -275,17 +272,16 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_error(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         # MagicMock auto-creates every attribute and looks callable, which
         # would mask a "missing method" bug in the broker. spec the client
         # so only explicitly-allowed attrs are reachable; the broker's
-        # getattr(..., None) fallback then trips correctly. _game_client
-        # is a read-only property — assign the name-mangled private.
+        # getattr(..., None) fallback then trips correctly.
         spec_client = MagicMock(
             spec=["task_lifecycle", "task_cancel", "current_task_id"]
         )
         spec_client.current_task_id = None
-        agent._VoiceAgent__game_client = spec_client
+        agent.game_client = spec_client
 
         msg = BusGameToolCallRequest(
             source="task_abc",
@@ -303,7 +299,7 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_byoa_source_requires_active_task(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.get_ship_definitions = AsyncMock(return_value={"definitions": []})
 
         msg = BusGameToolCallRequest(
@@ -326,7 +322,7 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_byoa_runner_source_cannot_broker_tools(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.get_ship_definitions = AsyncMock(return_value={"definitions": []})
 
         msg = BusGameToolCallRequest(
@@ -348,13 +344,13 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_byoa_active_task_identity_comes_from_broker_state(self):
-        from gradientbang.utils.supabase_client import (
+        from gradientbang.game.client import (
             _per_call_actor_character_id,
             _per_call_character_id,
             _per_call_task_id,
         )
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
@@ -398,7 +394,7 @@ class TestGameToolCallBroker:
 
     @pytest.mark.asyncio
     async def test_byoa_wrong_task_id_rejected(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
@@ -432,7 +428,7 @@ class TestGameToolCallBroker:
 class TestByoaTaskLifecycleAuthorization:
     @pytest.mark.asyncio
     async def test_byoa_task_response_wrong_task_id_is_ignored(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
@@ -460,7 +456,7 @@ class TestByoaTaskLifecycleAuthorization:
 
     @pytest.mark.asyncio
     async def test_byoa_task_update_wrong_task_id_is_ignored(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
@@ -487,7 +483,7 @@ class TestByoaTaskLifecycleAuthorization:
 class TestCombatStrategyBroker:
     @pytest.mark.asyncio
     async def test_dispatches_combat_get_strategy(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.combat_get_strategy = AsyncMock(
             return_value={"doctrine": "aggressive"}
         )
@@ -510,7 +506,7 @@ class TestCombatStrategyBroker:
 
     @pytest.mark.asyncio
     async def test_exception_translated_to_error(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.combat_get_strategy = AsyncMock(
             side_effect=RuntimeError("no strategy configured")
         )
@@ -535,7 +531,7 @@ class TestCombatStrategyBroker:
 class TestCorporationQueryBroker:
     @pytest.mark.asyncio
     async def test_my_query_routes_to_my_corporation(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(return_value={"corp_id": "corp-1"})
 
         msg = BusCorporationQueryRequest(
@@ -555,7 +551,7 @@ class TestCorporationQueryBroker:
 
     @pytest.mark.asyncio
     async def test_list_query_routes_to_corporation_list(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(
             return_value={"corporations": []}
         )
@@ -574,7 +570,7 @@ class TestCorporationQueryBroker:
 
     @pytest.mark.asyncio
     async def test_info_query_requires_corp_id(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock()
 
         msg = BusCorporationQueryRequest(
@@ -594,7 +590,7 @@ class TestCorporationQueryBroker:
 
     @pytest.mark.asyncio
     async def test_info_query_routes_to_corporation_info(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(
             return_value={"corp_id": "corp-2", "members": []}
         )
@@ -621,7 +617,7 @@ class TestCorporationQueryBroker:
 class TestTaskFinishBroker:
     @pytest.mark.asyncio
     async def test_dispatches_task_lifecycle_finish(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         msg = BusTaskFinishNotification(
             source="task_abc",
             character_id="corp-ship-abc",
@@ -648,7 +644,7 @@ class TestTaskFinishBroker:
     async def test_finish_without_actor_omits_metadata(self):
         """Player-ship tasks don't have a distinct actor — finish carries
         no actor_character_id, broker passes task_metadata=None."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         msg = BusTaskFinishNotification(
             source="task_abc",
             character_id="char-123",
@@ -669,7 +665,7 @@ class TestTaskFinishBroker:
     @pytest.mark.asyncio
     async def test_no_response_message_sent(self):
         """task.finish is fire-and-forget — no Response* message."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         msg = BusTaskFinishNotification(
             source="task_abc",
             character_id="char-x",
@@ -684,7 +680,7 @@ class TestTaskFinishBroker:
 
     @pytest.mark.asyncio
     async def test_failure_is_logged_not_raised(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.task_lifecycle = AsyncMock(
             side_effect=RuntimeError("network down")
         )

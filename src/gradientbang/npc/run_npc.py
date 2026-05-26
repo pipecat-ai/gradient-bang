@@ -18,7 +18,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
+from gradientbang.game.base_client import RPCError
 
 BOT_ENV_FILE = ".env.bot"
 
@@ -196,6 +196,8 @@ async def run_task(args: argparse.Namespace) -> int:
         load_dotenv(bot_env, override=False)
     else:
         logger.warning("No {} found — LLM config may be missing", BOT_ENV_FILE)
+
+    from gradientbang.game.client import AsyncGameClient
 
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None

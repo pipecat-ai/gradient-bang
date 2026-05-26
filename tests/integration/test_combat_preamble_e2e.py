@@ -1,7 +1,7 @@
 """E2E tests for the combat preamble — combat.md + ship doctrine in fixed
 order ahead of the round-1 combat.round_waiting event.
 
-Asserts the preamble injection logic for *both* the player voice agent
+Asserts the preamble injection logic for *both* the player orchestrator
 (EventRelay path) and corp-ship task agents (TaskAgent path), since both
 must satisfy the same invariant: every ship in combat enters with full
 mechanics + its authored doctrine in LLM context, in the order
@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 from .e2e_harness import (
@@ -84,14 +84,14 @@ def _assert_preamble_order(
     return combat_md_idx, doctrine_idx, event_idx
 
 
-# ── Player voice agent (EventRelay path) ──────────────────────────────────
+# ── Player orchestrator (EventRelay path) ──────────────────────────────────
 
 
 @pytest.mark.integration
 class TestPlayerCombatPreambleE2E:
     """When the player enters combat, EventRelay injects combat.md +
     doctrine ahead of the round-1 combat.round_waiting event in the
-    VoiceAgent's LLM context."""
+    Orchestrator's LLM context."""
 
     @pytest.fixture(autouse=True)
     async def setup(
@@ -273,7 +273,7 @@ class TestCorpShipCombatPreambleE2E:
                 corp_task = next(
                     (
                         c
-                        for c in h.voice_agent.children
+                        for c in h.orchestrator.children
                         if isinstance(c, TaskAgent) and c._is_corp_ship
                     ),
                     None,

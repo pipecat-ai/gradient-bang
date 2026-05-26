@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.game.client import AsyncGameClient
 
 
 async def fetch_chat_history(

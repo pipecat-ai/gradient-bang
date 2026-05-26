@@ -9,7 +9,7 @@ import os
 import httpx
 import pytest
 
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.game.client import AsyncGameClient
 
 
 @pytest.fixture(scope="session")

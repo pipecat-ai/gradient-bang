@@ -1,4 +1,4 @@
-"""Unit tests for the BYOA wake flow on VoiceAgent.
+"""Unit tests for the BYOA wake flow on the Orchestrator.
 
 Covers:
 
@@ -27,15 +27,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusAgentHelloResponse,
     BusByoaPresenceMessage,
 )
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-from gradientbang.utils.api_client import RPCError
+from gradientbang.runtime.orchestrator import Orchestrator
+from gradientbang.game.base_client import RPCError
+from .runtime_test_helpers import make_orchestrator
 
 
-def _make_voice_agent(**overrides) -> VoiceAgent:
+def _make_orchestrator(**overrides) -> Orchestrator:
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.set_event_polling_scope = MagicMock()
@@ -46,27 +47,28 @@ def _make_voice_agent(**overrides) -> VoiceAgent:
     )
     mock_game_client._request = AsyncMock(return_value={})
 
-    kwargs = {
-        
-        "game_client": mock_game_client,
-        "character_id": "char-player",
-        "rtvi_processor": MagicMock(push_frame=AsyncMock()),
-    }
-    kwargs.update(overrides)
-    return VoiceAgent("player", **kwargs)
+    character_id = overrides.pop("character_id", "char-player")
+    rtvi = overrides.pop("rtvi", MagicMock(push_frame=AsyncMock()))
+    game_client = overrides.pop("game_client", mock_game_client)
+    assert not overrides, f"Unhandled overrides: {sorted(overrides)}"
+    return make_orchestrator(
+        game_client=game_client,
+        character_id=character_id,
+        rtvi=rtvi,
+    )
 
 
 @pytest.mark.unit
 class TestByoaAgentName:
     def test_documented_format(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         assert agent._byoa.agent_name_for("ship-uuid-123") == "byoa_ship-uuid-123"
 
 
 @pytest.mark.unit
 class TestLookupByoaOwner:
     async def test_returns_owner_prefix_when_byoa_claimed(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(
             return_value={
                 "corporation": {
@@ -86,7 +88,7 @@ class TestLookupByoaOwner:
         assert await agent._byoa.lookup_owner("ship-1") == "abc123def456"
 
     async def test_returns_none_for_non_byoa_ship(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(
             return_value={
                 "corporation": {"ships": [{"ship_id": "ship-1", "byoa": None}]}
@@ -95,12 +97,12 @@ class TestLookupByoaOwner:
         assert await agent._byoa.lookup_owner("ship-1") is None
 
     async def test_returns_none_when_my_corporation_fails(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(side_effect=RuntimeError("network"))
         assert await agent._byoa.lookup_owner("ship-1") is None
 
     async def test_returns_none_when_ship_not_in_corp_response(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client._request = AsyncMock(
             return_value={"corporation": {"ships": []}}
         )
@@ -110,7 +112,7 @@ class TestLookupByoaOwner:
 @pytest.mark.unit
 class TestUnsolicitedHello:
     async def test_correlation_id_empty_is_no_op_on_pending_requests(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         future_task = asyncio.create_task(
             agent._hello_pending.issue("corr-xyz", timeout=0.1)
         )
@@ -121,7 +123,7 @@ class TestUnsolicitedHello:
             await future_task
 
     async def test_correlation_id_set_resolves_matching_pending(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         future_task = asyncio.create_task(
             agent._hello_pending.issue("corr-abc", timeout=1.0)
         )
@@ -141,7 +143,7 @@ class TestUnsolicitedHello:
 @pytest.mark.unit
 class TestByoaPresence:
     async def test_presence_online_updates_map_and_pushes_rtvi(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
 
         await agent._byoa.on_presence(
@@ -163,7 +165,7 @@ class TestByoaPresence:
             agent._byoa._sweep_task.cancel()
 
     async def test_presence_ignores_non_byoa_ship(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa.lookup_owner = AsyncMock(return_value=None)
 
         await agent._byoa.on_presence(
@@ -179,7 +181,7 @@ class TestByoaPresence:
         agent._rtvi.push_frame.assert_not_awaited()
 
     async def test_stale_presence_marks_offline(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
         await agent._byoa.on_presence(
             BusByoaPresenceMessage(source="byoa_ship-1", ship_id="ship-1", online=True)
@@ -199,7 +201,7 @@ class TestByoaPresence:
 @pytest.mark.unit
 class TestWatchWakeTimeout:
     async def test_cancellation_is_happy_path(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa._config = MagicMock(agent_wake_timeout_seconds=10.0)
         agent._locked_ships["ship-1"] = "task-1"
 
@@ -218,7 +220,7 @@ class TestWatchWakeTimeout:
         assert agent._locked_ships == {"ship-1": "task-1"}
 
     async def test_expiry_releases_lock_and_cleans_state(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._byoa._config = MagicMock(agent_wake_timeout_seconds=0.05)
         agent.enqueue_deferred_update = MagicMock()
         agent._locked_ships["ship-1"] = "task-1"
@@ -248,7 +250,7 @@ class TestWatchWakeTimeout:
 @pytest.mark.unit
 class TestCancelPendingByoaWake:
     async def test_client_cancel_clears_pending_wake_without_bus_dispatch(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.enqueue_deferred_update = MagicMock()
         agent.update_polling_scope = MagicMock()
         watchdog = asyncio.create_task(asyncio.sleep(30))
@@ -273,7 +275,7 @@ class TestCancelPendingByoaWake:
 
 @pytest.mark.unit
 class TestStartTaskWakeBranch:
-    def _wire_byoa_corp_ship(self, agent: VoiceAgent, byoa_owner_id: str | None) -> None:
+    def _wire_byoa_corp_ship(self, agent: Orchestrator, byoa_owner_id: str | None) -> None:
         """Wire up enough state on the agent so the BYOA branch is reachable."""
         agent._byoa._config = MagicMock(agent_wake_timeout_seconds=30.0)
         agent._is_valid_uuid = MagicMock(return_value=True)
@@ -292,7 +294,7 @@ class TestStartTaskWakeBranch:
     async def test_byoa_ship_dispatch_registers_watchdog_and_calls_wake(self):
         """BYOA dispatch calls wake_agent with the per-session channel and
         registers a wake watchdog before yielding."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent._byoa._bus_channel = "bot_session_abc"
 
@@ -331,7 +333,7 @@ class TestStartTaskWakeBranch:
 
     async def test_byoa_dispatch_without_bus_channel_cleans_up_async(self):
         """Without a session channel, start returns waking and cleanup follows async."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent.enqueue_deferred_update = MagicMock()
         agent._byoa._bus_channel = ""
@@ -354,7 +356,7 @@ class TestStartTaskWakeBranch:
         assert "missing_bus_channel" in agent.enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_noop_without_presence_cleans_up_async(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent.enqueue_deferred_update = MagicMock()
         agent._byoa._bus_channel = "bot_session_abc"
@@ -379,7 +381,7 @@ class TestStartTaskWakeBranch:
         assert "BYOA_WAKE_TARGET=http" in agent.enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_preserves_structured_wake_failure(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent.enqueue_deferred_update = MagicMock()
         agent._byoa._bus_channel = "bot_session_abc"
@@ -412,7 +414,7 @@ class TestStartTaskWakeBranch:
         assert "(http/http_503)" in agent.enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_with_fresh_presence_still_wakes(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent._byoa._bus_channel = "bot_session_abc"
         agent._byoa._presence["ship-uuid-123"] = SimpleNamespace(
@@ -442,7 +444,7 @@ class TestStartTaskWakeBranch:
             watchdog.cancel()
 
     async def test_byoa_ship_owned_by_another_member_fails_before_lock(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="othermember1")
         agent._byoa._bus_channel = "bot_session_abc"
 
@@ -460,7 +462,7 @@ class TestStartTaskWakeBranch:
 
     async def test_non_byoa_corp_ship_falls_through_to_in_process_spawn(self):
         """A corp ship without BYOA claim spawns a local TaskAgent."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         self._wire_byoa_corp_ship(agent, byoa_owner_id=None)
         agent._byoa._bus_channel = "bot_session_abc"
 

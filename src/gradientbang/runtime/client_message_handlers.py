@@ -22,7 +22,7 @@ from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.runtime.frames import UserTextInputFrame
 from gradientbang.runtime.voices import get_voices_for_provider
-from gradientbang.utils.api_client import RPCError
+from gradientbang.game.base_client import RPCError
 from gradientbang.utils.tts_factory import get_tts_provider
 
 

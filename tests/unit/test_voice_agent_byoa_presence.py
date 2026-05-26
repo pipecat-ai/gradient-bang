@@ -1,6 +1,6 @@
-"""Unit tests for BYOA-presence-driven ship-lock cleanup on VoiceAgent.
+"""Unit tests for BYOA-presence-driven ship-lock cleanup on Orchestrator.
 
-The DB-persistent ship-task lock was removed. ``VoiceAgent._locked_ships``
+The DB-persistent ship-task lock was removed. ``Orchestrator._locked_ships``
 is the only authority on "ship busy". When a BYOA process goes silent past
 the presence stale window, the bot must release its in-memory lock locally
 and emit a ``task.cancel`` event so downstream consumers see the task ended.
@@ -19,31 +19,34 @@ import pytest
 
 from pipecat.bus import BusEndWorkerMessage
 
-from gradientbang.pipecat_server.byoa_coordinator import (
+from gradientbang.runtime.byoa_coordinator import (
     PRESENCE_STALE_SECONDS,
     ByoaPresence,
 )
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.runtime.orchestrator import Orchestrator
+from .runtime_test_helpers import make_orchestrator
 
 
-def _make_voice_agent(**overrides) -> VoiceAgent:
+def _make_orchestrator(**overrides) -> Orchestrator:
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.set_event_polling_scope = MagicMock()
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
 
-    kwargs = {
-        "game_client": mock_game_client,
-        "character_id": "char-player",
-        "rtvi_processor": MagicMock(push_frame=AsyncMock()),
-    }
-    kwargs.update(overrides)
-    return VoiceAgent("player", **kwargs)
+    character_id = overrides.pop("character_id", "char-player")
+    rtvi = overrides.pop("rtvi", MagicMock(push_frame=AsyncMock()))
+    game_client = overrides.pop("game_client", mock_game_client)
+    assert not overrides, f"Unhandled overrides: {sorted(overrides)}"
+    return make_orchestrator(
+        game_client=game_client,
+        character_id=character_id,
+        rtvi=rtvi,
+    )
 
 
 def _set_presence(
-    agent: VoiceAgent,
+    agent: Orchestrator,
     ship_id: str,
     *,
     online: bool,
@@ -61,7 +64,7 @@ def _set_presence(
 @pytest.mark.unit
 class TestReleaseLockOnByoaOffline:
     async def test_pops_locked_ships_emits_cancel_and_end_agent(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
         ship_id = "ship-aaa"
         task_id = "task-bbb"
@@ -81,7 +84,7 @@ class TestReleaseLockOnByoaOffline:
         assert sent.reason == "byoa_offline"
 
     async def test_noop_when_ship_not_locked(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
 
         await agent._byoa._release_lock_on_offline("ship-not-locked")
@@ -90,7 +93,7 @@ class TestReleaseLockOnByoaOffline:
         agent.send_bus_message.assert_not_awaited()
 
     async def test_swallows_task_cancel_errors(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
         agent._game_client.task_cancel = AsyncMock(side_effect=RuntimeError("boom"))
         ship_id = "ship-ccc"
@@ -107,7 +110,7 @@ class TestReleaseLockOnByoaOffline:
 @pytest.mark.unit
 class TestMarkStaleByoaPresenceOffline:
     async def test_stale_online_ship_with_lock_is_released(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
         ship_id = "ship-eee"
         task_id = "task-fff"
@@ -126,7 +129,7 @@ class TestMarkStaleByoaPresenceOffline:
         agent._game_client.task_cancel.assert_awaited_once()
 
     async def test_fresh_presence_is_left_alone(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.send_bus_message = AsyncMock()
         ship_id = "ship-ggg"
         agent._locked_ships[ship_id] = "task-hhh"
