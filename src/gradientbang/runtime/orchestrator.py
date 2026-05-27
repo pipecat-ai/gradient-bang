@@ -2243,12 +2243,16 @@ class Orchestrator:
         elif update_type == "output":
             text = update.get("text", "")
             message_type = update.get("message_type")
-            # Get task_type from the child agent
+            # Get task_type from the child agent or remote BYOA context.
             child = next(
                 (c for c in self.children if isinstance(c, TaskAgent) and c.name == message.source),
                 None,
             )
-            task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
+            task_type = (
+                "corp_ship"
+                if (child and child._is_corp_ship) or byoa_ctx is not None
+                else "player_ship"
+            )
             await self._task_output_handler(text, message_type, message.job_id, task_type)
 
     async def on_job_response(self, message: BusJobResponseMessage) -> None:

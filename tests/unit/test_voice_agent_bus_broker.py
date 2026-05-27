@@ -475,6 +475,32 @@ class TestByoaTaskLifecycleAuthorization:
 
         agent._task_output_handler.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_byoa_task_output_update_is_classified_as_corp_ship(self):
+        agent = _make_orchestrator()
+        agent._byoa._active_agents["byoa_ship-123"] = {
+            "task_id": "task-real",
+            "character_id": "ship-real",
+            "actor_character_id": "actor-real",
+            "task_metadata": {},
+        }
+        agent._task_output_handler = AsyncMock()
+
+        msg = BusJobUpdateMessage(
+            source="byoa_ship-123",
+            target="player",
+            job_id="task-real",
+            update={"type": "output", "text": "remote progress", "message_type": "STEP"},
+        )
+        await agent.on_job_update(msg)
+
+        agent._task_output_handler.assert_awaited_once_with(
+            "remote progress",
+            "STEP",
+            "task-real",
+            "corp_ship",
+        )
+
 
 # ── Combat-strategy broker ────────────────────────────────────────────
 
