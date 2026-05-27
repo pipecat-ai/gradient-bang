@@ -80,6 +80,10 @@ from gradientbang.runtime.bus import (
     PendingRequests,
 )
 from gradientbang.runtime.tool_schema import GAME_METHOD_ALIASES, TASK_TOOLS
+from gradientbang.utils.event_ordering import (
+    extract_event_id,
+    sort_by_event_id_preserving_no_id_positions,
+)
 from gradientbang.utils.llm_factory import create_llm_service, get_task_agent_llm_config
 from gradientbang.utils.prompt_loader import (
     AVAILABLE_TOPICS,
@@ -622,36 +626,14 @@ class TaskAgent(LLMWorker):
     def _sort_ready_game_events(
         cls, events: list[tuple[Dict[str, Any], bool]]
     ) -> list[tuple[Dict[str, Any], bool]]:
-        # Id-bearing events sort by event_id; no-id events keep their
-        # original arrival positions.
-        extracted = [(idx, item, cls._extract_event_id(item[0])) for idx, item in enumerate(events)]
-        ided = [(idx, item, eid) for idx, item, eid in extracted if eid is not None]
-        ided.sort(key=lambda t: (t[2], t[0]))
-
-        out: list[Optional[tuple[Dict[str, Any], bool]]] = [None] * len(events)
-        for idx, item, eid in extracted:
-            if eid is None:
-                out[idx] = item
-        free_slots = [i for i, slot in enumerate(out) if slot is None]
-        for slot, (_idx, item, _eid) in zip(free_slots, ided):
-            out[slot] = item
-        return [item for item in out if item is not None]
+        return sort_by_event_id_preserving_no_id_positions(
+            events,
+            event_id_of=lambda item: extract_event_id(item[0]),
+        )
 
     @staticmethod
     def _extract_event_id(event: Mapping[str, Any]) -> Optional[int]:
-        ctx = event.get("event_context")
-        if not isinstance(ctx, Mapping):
-            payload = event.get("payload")
-            if isinstance(payload, Mapping):
-                ctx = payload.get("__event_context") or payload.get("event_context")
-        if not isinstance(ctx, Mapping):
-            return None
-        event_id = ctx.get("event_id")
-        if isinstance(event_id, int):
-            return event_id
-        if isinstance(event_id, str) and event_id.isdigit():
-            return int(event_id)
-        return None
+        return extract_event_id(event)
 
     def _record_handled_event_order(self, event: Mapping[str, Any]) -> None:
         # event.query is a backfill envelope — its ids don't belong

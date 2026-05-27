@@ -24,6 +24,10 @@ from psycopg.errors import (
 from psycopg.rows import tuple_row
 
 from gradientbang.config import Settings, settings
+from gradientbang.utils.event_ordering import (
+    extract_event_id_from_context,
+    sort_by_event_id_id_first,
+)
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 if TYPE_CHECKING:
@@ -578,24 +582,10 @@ class PubsubEventAdapter:
                         break
 
     def _sort_rows(self, rows: list[tuple]) -> list[tuple]:
-        def key(item: tuple[int, tuple]) -> tuple[int, int, int]:
-            idx, row = item
-            event_id = self._event_id_for_row(row)
-            return (1 if event_id is None else 0, event_id or 0, idx)
-
-        indexed = list(enumerate(rows))
-        indexed.sort(key=key)
-        return [row for _idx, row in indexed]
+        return sort_by_event_id_id_first(rows, event_id_of=self._event_id_for_row)
 
     def _sort_messages(self, messages: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-        def key(item: tuple[int, Mapping[str, Any]]) -> tuple[int, int, int]:
-            idx, message = item
-            event_id = self._event_id_for_message(message)
-            return (1 if event_id is None else 0, event_id or 0, idx)
-
-        indexed = list(enumerate(messages))
-        indexed.sort(key=key)
-        return [message for _idx, message in indexed]
+        return sort_by_event_id_id_first(messages, event_id_of=self._event_id_for_message)
 
     def _event_id_for_row(self, row: tuple) -> Optional[int]:
         message = row[2] if len(row) >= 3 else None
@@ -604,15 +594,7 @@ class PubsubEventAdapter:
         return self._event_id_for_message(message)
 
     def _event_id_for_message(self, message: Mapping[str, Any]) -> Optional[int]:
-        event_context = message.get("event_context")
-        if not isinstance(event_context, Mapping):
-            return None
-        event_id = event_context.get("event_id")
-        if isinstance(event_id, int):
-            return event_id
-        if isinstance(event_id, str) and event_id.isdigit():
-            return int(event_id)
-        return None
+        return extract_event_id_from_context(message.get("event_context"))
 
     async def _no_events_watchdog(self) -> None:
         try:

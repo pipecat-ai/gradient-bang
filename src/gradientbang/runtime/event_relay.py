@@ -29,6 +29,11 @@ from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 
 from gradientbang.runtime.chat_history import emit_chat_history, fetch_chat_history
+from gradientbang.utils.event_ordering import (
+    extract_event_id,
+    extract_payload_event_context,
+    sort_by_event_id_preserving_no_id_positions,
+)
 from gradientbang.utils.formatting import (
     extract_display_name,
     short_id,
@@ -1257,36 +1262,11 @@ class EventRelay:
 
     @classmethod
     def _sort_ready_events(cls, events: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
-        # Id-bearing events sort by event_id; no-id events keep their
-        # original arrival positions.
-        extracted = [(idx, ev, cls._extract_event_id(ev)) for idx, ev in enumerate(events)]
-        ided = [(idx, ev, eid) for idx, ev, eid in extracted if eid is not None]
-        ided.sort(key=lambda t: (t[2], t[0]))
-
-        out: list[Optional[Dict[str, Any]]] = [None] * len(events)
-        for idx, ev, eid in extracted:
-            if eid is None:
-                out[idx] = ev
-        free_slots = [i for i, slot in enumerate(out) if slot is None]
-        for slot, (_idx, ev, _eid) in zip(free_slots, ided):
-            out[slot] = ev
-        return [ev for ev in out if ev is not None]
+        return sort_by_event_id_preserving_no_id_positions(events, event_id_of=extract_event_id)
 
     @staticmethod
     def _extract_event_id(event: Mapping[str, Any]) -> Optional[int]:
-        ctx = event.get("event_context")
-        if not isinstance(ctx, Mapping):
-            payload = event.get("payload")
-            if isinstance(payload, Mapping):
-                ctx = payload.get("__event_context") or payload.get("event_context")
-        if not isinstance(ctx, Mapping):
-            return None
-        event_id = ctx.get("event_id")
-        if isinstance(event_id, int):
-            return event_id
-        if isinstance(event_id, str) and event_id.isdigit():
-            return int(event_id)
-        return None
+        return extract_event_id(event)
 
     def _record_event_order(self, event: Mapping[str, Any]) -> None:
         # event.query is a backfill envelope — its ids don't belong
@@ -1423,10 +1403,7 @@ class EventRelay:
 
     @staticmethod
     def _extract_event_context(payload: Any) -> Optional[Mapping[str, Any]]:
-        if not isinstance(payload, Mapping):
-            return None
-        ctx = payload.get("__event_context") or payload.get("event_context")
-        return ctx if isinstance(ctx, Mapping) else None
+        return extract_payload_event_context(payload)
 
     @staticmethod
     def _extract_sector_id(

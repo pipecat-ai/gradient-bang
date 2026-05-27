@@ -17,6 +17,10 @@ from loguru import logger
 
 from gradientbang.config import settings
 from gradientbang.game.base_client import RPCError
+from gradientbang.utils.event_ordering import (
+    extract_internal_payload_event_id,
+    record_recent_event_id,
+)
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 if TYPE_CHECKING:
@@ -300,18 +304,15 @@ class PollingEventAdapter:
         return payload
 
     def _record_event_id(self, payload: Mapping[str, Any]) -> bool:
-        ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None
-        if not isinstance(ctx, Mapping):
-            return True
-        event_id = ctx.get("event_id")
-        if not isinstance(event_id, int):
-            return True
-        if event_id in self._recent_event_ids:
-            return False
-        self._recent_event_ids.append(event_id)
-        if len(self._recent_event_ids) > self._recent_event_ids_max:
-            self._recent_event_ids.popleft()
-        return True
+        return record_recent_event_id(
+            self._recent_event_ids,
+            payload,
+            max_size=self._recent_event_ids_max,
+            event_id_of=lambda value: extract_internal_payload_event_id(
+                value,
+                parse_strings=False,
+            ),
+        )
 
 
 __all__ = [

@@ -19,6 +19,7 @@ from gradientbang.config import settings
 from gradientbang.game.base_client import BaseAsyncGameClient, RPCError
 from gradientbang.game.transport import make_event_adapter
 from gradientbang.game.transport.base import EventAdapter
+from gradientbang.utils.event_ordering import extract_internal_payload_event_id
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
@@ -731,13 +732,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         return cleaned
 
     def _extract_event_id_from_payload(self, payload: Mapping[str, Any]) -> Optional[int]:
-        ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None
-        if not isinstance(ctx, Mapping):
-            return None
-        event_id = ctx.get("event_id")
-        if isinstance(event_id, int):
-            return event_id
-        return None
+        return extract_internal_payload_event_id(payload, parse_strings=False)
 
     def _format_event(self, event_name: str, payload: Any, request_id: Optional[str] = None) -> Dict[str, Any]:
         # Remove internal tracking metadata before formatting
