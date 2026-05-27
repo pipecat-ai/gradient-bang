@@ -59,7 +59,7 @@ export interface GameState {
   corporation?: Corporation
   character_id?: string
   access_token?: string
-  bypassTutorial: boolean
+  bypass_tutorial: boolean
   ship: ShipSelf
   ships: ActiveProperty<ShipSelf[]>
   sector?: Sector
@@ -100,7 +100,7 @@ export interface GameSlice extends GameState {
   setCharacterId: (characterId: string) => void
   setAccessToken: (accessToken: string) => void
   setCharacterAndToken: (characterId: string, accessToken: string) => void
-  setBypassTutorial: (bypassTutorial: boolean) => void
+  setBypassTutorial: (bypass_tutorial: boolean) => void
   addMessage: (message: ChatMessage) => void
   setChatHistory: (messages: ChatMessage[]) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
@@ -152,7 +152,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   corporation: undefined,
   character_id: undefined,
   access_token: undefined,
-  bypassTutorial: false,
+  bypass_tutorial: false,
   ship: {} as ShipSelf,
   ships: { data: undefined, last_updated: null },
   sector: undefined,
@@ -216,7 +216,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   setAccessToken: (accessToken: string) => set({ access_token: accessToken }),
   setCharacterAndToken: (characterId: string, accessToken: string) =>
     set({ character_id: characterId, access_token: accessToken }),
-  setBypassTutorial: (bypassTutorial: boolean) => set({ bypassTutorial }),
+  setBypassTutorial: (bypass_tutorial: boolean) => set({ bypass_tutorial }),
 
   setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) => set({ ...get(), ...newState }, true),

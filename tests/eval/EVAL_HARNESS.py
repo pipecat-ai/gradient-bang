@@ -5,8 +5,11 @@ client-ready, and capture bot events/transcripts until idle or timeout.
 Usage:
   uv run --with pipecatcloud==0.4.3 --with daily-python python EVAL_HARNESS.py \
       --bot-name gb-bot-dev --api-key pk_... \
-      --body '{"character_id":"...","character_name":"Cekura_Eval","bypass_tutorial":true}' \
+      --body '{"character_id":"...","character_name":"Cekura_Eval"}' \
       --timeout 60
+
+Set BOT_NEW_PLAYER_ONBOARDING=0 on the bot runtime to suppress the new-player
+onboarding prompt/route seed during evals.
 """
 import argparse
 import asyncio

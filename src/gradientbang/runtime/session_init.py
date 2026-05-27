@@ -99,7 +99,7 @@ async def gather_initial_state(
     game_client: AsyncGameClient,
     character_id: str,
     character_display_name: str,
-    bypass_tutorial: bool = False,
+    new_player_onboarding_enabled: bool = True,
 ) -> InitialState:
     """Fetch initial state via blocking RPCs and assemble user messages
     for the LLM context.
@@ -156,7 +156,7 @@ async def gather_initial_state(
         else:
             logger.warning(f"session_init: no summary produced for {event_name}")
 
-    if is_new_player and not bypass_tutorial:
+    if is_new_player and new_player_onboarding_enabled:
         initial_messages.append(
             {"role": "user", "content": _build_onboarding_xml(display_name, onboarding_route)}
         )
@@ -168,7 +168,8 @@ async def gather_initial_state(
     logger.info(
         f"session_init: gathered initial state for {display_name} "
         f"(is_first_visit={is_first_visit}, is_new_player={is_new_player}, "
-        f"bypass_tutorial={bypass_tutorial}, messages={len(initial_messages)})"
+        f"new_player_onboarding_enabled={new_player_onboarding_enabled}, "
+        f"messages={len(initial_messages)})"
     )
 
     return InitialState(

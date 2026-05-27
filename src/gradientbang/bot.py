@@ -8,7 +8,6 @@ by pipecat.ai and daily.co
 import asyncio
 import os
 import uuid
-from dataclasses import dataclass
 
 from loguru import logger
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -44,6 +43,7 @@ from pipecat.utils.context.llm_context_summarization import (
     LLMAutoContextSummarizationConfig,
     LLMContextSummaryConfig,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 from gradientbang import STARTUP_BANNER, __version__
 from gradientbang.config import PLAYER_AGENT_NAME, settings
@@ -99,26 +99,21 @@ init_weave()
 init_cekura()
 
 
-@dataclass(frozen=True)
-class BotRuntimeConfig:
-    voice_name: str | None
-    voice_id_hint: str | None
-    personality_tone: str
+class BotRuntimeConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="ignore",
+        populate_by_name=True,
+        str_strip_whitespace=True,
+    )
+
+    voice_name: str | None = Field(default=None, alias="voice")
+    voice_id_hint: str | None = Field(default=None, alias="voice_id")
+    personality_tone: str = ""
+    bypass_tutorial: bool = False
 
     @classmethod
     def from_body(cls, body: dict) -> "BotRuntimeConfig":
-        def _opt_str(key: str) -> str | None:
-            value = body.get(key)
-            if not isinstance(value, str):
-                return None
-            value = value.strip()
-            return value or None
-
-        return cls(
-            voice_name=_opt_str("voice"),
-            voice_id_hint=_opt_str("voice_id"),
-            personality_tone=_opt_str("personality_tone") or "",
-        )
+        return cls.model_validate(body)
 
 
 def _log_boot_step(message: str) -> None:
@@ -147,6 +142,9 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     # ── Session config ─────────────────────────────────────────────────
     config = BotRuntimeConfig.from_body(body)
+    # ``bypass_tutorial`` is accepted for the upcoming ScriptedAgent tutorial
+    # flow. That pipeline is not implemented in this runtime yet, so the value
+    # intentionally does not affect new-player onboarding prompt injection.
 
     tts_provider = get_tts_provider()
     voice_config = get_voice_config(config.voice_name, tts_provider) if config.voice_name else None
@@ -316,6 +314,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         session_id=BOT_INSTANCE_ID or "",
         local_api_url=local_api_server.url if local_api_server else None,
         rtvi=rtvi,
+        new_player_onboarding_enabled=settings.BOT_NEW_PLAYER_ONBOARDING,
     )
 
     # ── Idle Reporting ─────────────────────────────────────────────────

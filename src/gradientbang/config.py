@@ -387,6 +387,10 @@ class Settings(BaseSettings):
         default=True,
         description="Master toggle for idle-report behaviour.",
     )
+    BOT_NEW_PLAYER_ONBOARDING: bool = Field(
+        default=True,
+        description="Enable prompt injection and route seeding for players with no known mega-port. Set false for evals/tests.",
+    )
     CONTEXT_SUMMARIZATION_MESSAGE_LIMIT: int = Field(
         default=200,
         description="Number of conversation messages retained before triggering context summarization.",

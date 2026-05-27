@@ -14,16 +14,17 @@ description = "Bring-Your-Own-Agent harness for Gradient Bang."
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
-    # Pipecat core + the four Mode-A LLM providers (minimax piggy-backs on
-    # the OpenAI service via base_url so no separate extra is needed).
-    "pipecat-ai[google,anthropic,openai,runner]>=1.2",
+    # Pipecat core + BYOA bus + the Mode-A LLM providers. MiniMax piggy-backs
+    # on the OpenAI service via base_url, so no separate extra is needed.
+    "pipecat-ai[google,anthropic,runner,pgmq]>=1.2",
     "loguru>=0.7.0",
     "python-dotenv>=1.1.1",
+    "pydantic-settings>=2,<3",
     "httpx>=0.27.0",
 ]
 
 [project.scripts]
-byoa = "gradientbang.byoa.app:main"
+byoa = "gradientbang.runtime.byoa.app:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -38,3 +39,7 @@ where = ["src"]
 # Mirror the openai pin from the bot's pyproject so the LLM-factory paths
 # behave identically across the bot and BYOA runtimes.
 override-dependencies = ["openai==1.99.5"]
+
+[tool.uv.sources]
+# Keep BYOA on the same Pipecat subagents branch as the bot runtime.
+pipecat-ai = { git = "https://github.com/pipecat-ai/pipecat.git", branch = "aleix/port-subagents-to-pipecat" }

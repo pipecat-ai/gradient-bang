@@ -133,11 +133,13 @@ class Orchestrator:
         session_id: str,
         local_api_url: str | None,
         rtvi: RTVIProcessor,
+        new_player_onboarding_enabled: bool = True,
     ) -> None:
         self.auth = auth
         self.session_id = session_id
         self.local_api_url = local_api_url
         self.rtvi = rtvi
+        self._new_player_onboarding_enabled = new_player_onboarding_enabled
         self.bus: AgentBus | None = None
         self.voice_worker: PipelineWorker | None = None
         self.game_client: AsyncGameClient | None = None
@@ -187,12 +189,14 @@ class Orchestrator:
         session_id: str,
         local_api_url: str | None,
         rtvi: RTVIProcessor,
+        new_player_onboarding_enabled: bool = True,
     ) -> "Orchestrator":
         orch = cls(
             auth=auth,
             session_id=session_id,
             local_api_url=local_api_url,
             rtvi=rtvi,
+            new_player_onboarding_enabled=new_player_onboarding_enabled,
         )
         # AsyncGameClient construction is pure-config — no IO until the first
         # RPC. base_url comes from settings.SUPABASE_URL; functions_url is the
@@ -482,8 +486,13 @@ class Orchestrator:
             game_client=self.game_client,
             character_id=self.auth.character_id,
             character_display_name=self.auth.display_name,
-            bypass_tutorial=True,
+            new_player_onboarding_enabled=self._new_player_onboarding_enabled,
         )
+        # ScriptedAgent reminder: the old tutorial takeover branched here.
+        # This runtime does not wire that pipeline yet. When it does, thread
+        # BotRuntimeConfig.bypass_tutorial through and restore this branch:
+        # if initial_state.is_first_visit and not bypass_tutorial:
+        #     activate_agent("scripted")
 
         # Patch ${universe_size} / ${fedspace_sector_count} into the system
         # message now that we have the resolved values from status.snapshot.

@@ -18,7 +18,13 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from gradientbang.config import settings
-from gradientbang.utils.cekura_tracing import cekura_append_context_dump
+
+try:
+    from gradientbang.utils.cekura_tracing import cekura_append_context_dump
+except ImportError:  # pragma: no cover - exercised in slim BYOA installs
+
+    def cekura_append_context_dump(value: List[Dict[str, Any]]) -> None:
+        return None
 
 
 class ContextNotFoundError(Exception):
