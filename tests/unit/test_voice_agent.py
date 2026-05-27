@@ -1636,8 +1636,9 @@ class TestCorpShipRouting:
 
     @pytest.mark.asyncio
     async def test_ship_lock_released_after_task_completes(self):
-        """Ship lock is released; player agent stays in _children for reuse."""
+        """Ship lock is released and player agent is removed after completion."""
         from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from pipecat.bus import BusEndWorkerMessage
         from pipecat.bus import BusJobResponseMessage
         from pipecat.pipeline.job_context import JobStatus
 
@@ -1675,9 +1676,11 @@ class TestCorpShipRouting:
         await agent.on_job_response(msg)
 
         assert agent._character_id not in agent._locked_ships
-        # Player agent stays in _children for reuse (not ended)
-        assert any(c.name == child.name for c in agent._children)
-        agent.send_bus_message.assert_not_called()  # No BusEndWorkerMessage sent
+        assert all(c.name != child.name for c in agent._children)
+        agent.send_bus_message.assert_awaited_once()
+        end_message = agent.send_bus_message.await_args.args[0]
+        assert isinstance(end_message, BusEndWorkerMessage)
+        assert end_message.target == child.name
 
     @pytest.mark.asyncio
     async def test_error_after_add_agent_cleans_up_ship_lock(self):
@@ -1702,9 +1705,11 @@ class TestCorpShipRouting:
         assert len(agent._pending_tasks) == 0
 
     @pytest.mark.asyncio
-    async def test_player_agent_reused_across_tasks(self):
-        """Second player task reuses the idle agent instead of creating a new one."""
+    async def test_player_agent_recreated_across_tasks(self):
+        """Second player task creates a fresh local worker after first completes."""
         from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from pipecat.bus import BusJobResponseMessage
+        from pipecat.pipeline.job_context import JobStatus
 
         agent = _make_orchestrator()
         agent._children = []
@@ -1716,7 +1721,7 @@ class TestCorpShipRouting:
             agent._children.append(task_agent)
 
         agent.add_worker = AsyncMock(side_effect=add_agent)
-        agent.request_task = AsyncMock(return_value="should-not-be-used")
+        agent._dispatch_task_with_id = AsyncMock()
 
         # First task — creates a new agent
         params1 = MagicMock()
@@ -1731,32 +1736,31 @@ class TestCorpShipRouting:
         # Complete the first task
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
         first_agent_name = child.name
-        child._active_task_id = None  # Mark as idle
-        agent._locked_ships.pop(agent._character_id, None)
-        agent._dispatch_task_with_id = AsyncMock()
-        # Phase 1: the reuse path performs the hello handshake before
-        # dispatch. Short-circuit it in the unit test.
-        agent._send_hello_and_wait = AsyncMock()
+        msg = MagicMock(spec=BusJobResponseMessage)
+        msg.source = first_agent_name
+        msg.job_id = first_task_id
+        msg.status = JobStatus.COMPLETED
+        msg.response = {"message": "Done"}
+        agent.send_bus_message = AsyncMock()
+        agent._tool_call_inflight = 0
+        agent._assistant_cycle_active = False
+        agent._bot_stopped_speaking_at = 0.0
+        agent.update_polling_scope = MagicMock()
 
-        # Second task — should reuse the existing idle agent.
-        # The reuse path now pre-generates/acquires a server-side task id,
-        # then dispatches that pinned id to the already-running agent.
+        await agent.on_job_response(msg)
+
+        assert all(c.name != first_agent_name for c in agent._children)
+
+        # Second task — should create a fresh local worker.
         params2 = MagicMock()
         params2.arguments = {"task_description": "Trade goods"}
         result2 = await agent._handle_start_task(params2)
         assert result2["success"]
-        assert result2["task_id"] != "should-not-be-used"
-        assert agent.add_worker.call_count == 1  # No new add_agent call
-        agent.request_task.assert_not_called()
-        agent._dispatch_task_with_id.assert_awaited_once()
-        dispatch_call = agent._dispatch_task_with_id.await_args
-        assert dispatch_call.args[0] == first_agent_name
-        assert dispatch_call.args[1] == result2["task_id"]
-        # The reused agent name should still be the same internal bus name
-        assert any(c.name == first_agent_name for c in agent._children)
-        # And the pre-generated id from the first call should differ from the
-        # reused-path id (different code paths, different sources)
+        assert agent.add_worker.call_count == 2
+        second_child = next(c for c in agent._children if isinstance(c, TaskAgent))
+        assert second_child.name != first_agent_name
         assert first_task_id != result2["task_id"]
+        agent._dispatch_task_with_id.assert_not_awaited()
 
     @pytest.mark.asyncio
     @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
@@ -1855,8 +1859,8 @@ class TestCorpShipRouting:
         agent.update_polling_scope.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_close_tasks_ends_idle_player_agent(self):
-        """close_tasks() ends all task agents including idle player agent."""
+    async def test_close_tasks_ends_remaining_task_agents(self):
+        """close_tasks() ends remaining task agent pipelines."""
         from gradientbang.runtime.subagents.task_agent import TaskAgent
 
         agent = _make_orchestrator()
@@ -1864,7 +1868,7 @@ class TestCorpShipRouting:
         agent._locked_ships = {"ship-1": "task-uuid"}
         agent.send_bus_message = AsyncMock()
 
-        # Add an idle player task agent to children
+        # Add a remaining player task agent to children.
         mock_task_agent = MagicMock(spec=TaskAgent)
         mock_task_agent.name = "task_abc123"
         mock_task_agent._is_corp_ship = False
@@ -1981,16 +1985,12 @@ class TestServerSideShipLock:
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio
-    async def test_idle_player_agent_reuse_acquires_before_dispatch(self):
-        """Reusing the idle player agent must hold the server lock before work starts."""
+    async def test_player_agent_acquires_before_add_worker(self):
+        """New local player worker must hold the server lock before spawn."""
         from gradientbang.runtime.subagents.task_agent import TaskAgent
 
         agent = _make_orchestrator()
-        child = MagicMock(spec=TaskAgent)
-        child.name = "task_idle"
-        child._is_corp_ship = False
-        child._active_task_id = None
-        agent._children = [child]
+        agent._children = []
 
         order: list[str] = []
 
@@ -1998,22 +1998,19 @@ class TestServerSideShipLock:
             order.append("acquire")
             return {"success": True}
 
-        async def dispatch_mock(*_args, **_kwargs):
-            order.append("dispatch")
+        async def add_worker_mock(task_agent):
+            order.append("add_worker")
+            agent._children.append(task_agent)
 
         agent._game_client.task_lifecycle = AsyncMock(side_effect=lifecycle_mock)
-        agent._dispatch_task_with_id = AsyncMock(side_effect=dispatch_mock)
-        agent.request_task = AsyncMock(return_value="should-not-be-used")
-        # Phase 1: hello handshake sits between acquire and dispatch.
-        agent._send_hello_and_wait = AsyncMock()
+        agent.add_worker = AsyncMock(side_effect=add_worker_mock)
 
         params = MagicMock()
         params.arguments = {"task_description": "Trade goods"}
         result = await agent._handle_start_task(params)
 
         assert result["success"]
-        assert order == ["acquire", "dispatch"]
-        # The hello fires after the acquire and before the dispatch.
-        agent._send_hello_and_wait.assert_awaited_once_with("task_idle")
+        assert order == ["acquire", "add_worker"]
         assert agent._locked_ships[agent._character_id] == result["task_id"]
-        agent.request_task.assert_not_called()
+        child = next(c for c in agent._children if isinstance(c, TaskAgent))
+        assert child._is_corp_ship is False

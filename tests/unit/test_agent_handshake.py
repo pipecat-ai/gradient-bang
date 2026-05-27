@@ -8,7 +8,7 @@
   - The new-agent spawn's rollback path runs cleanly on hello timeout.
   - TaskAgent's teardown path is wired correctly per agent flavour: local
     corp ships use the idle timer, BYOA workers self-end after one task,
-    and player-ship agents stay warm.
+    and player-ship agents are ended by the orchestrator.
 """
 
 import asyncio

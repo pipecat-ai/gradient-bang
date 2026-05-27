@@ -2328,10 +2328,9 @@ class Orchestrator:
             if ship_character_id:
                 self._locked_ships.pop(ship_character_id, None)
 
-            # Corp ship agents: end pipeline, remove from children. Player agents
-            # stay alive for reuse — pipeline stays running. There is no per-task
+            # Local TaskAgents are one-task workers. There is no per-task
             # game client to close; the broker owns the single client.
-            if child and child._is_corp_ship:
+            if child:
                 try:
                     await self.send_bus_message(
                         BusEndWorkerMessage(
@@ -2675,6 +2674,7 @@ class Orchestrator:
             agent_name = None
             target_character_id = None
             try:
+                # Phase: parse request.
                 task_desc = params.arguments.get("task_description", "")
                 explicit_context = params.arguments.get("context")
                 ship_id = params.arguments.get("ship_id")
@@ -2682,6 +2682,7 @@ class Orchestrator:
                 if isinstance(ship_id, str):
                     ship_id = ship_id.strip().strip("[]")
 
+                # Phase: resolve target ship.
                 resolved_ship: Optional[dict] = None
                 if ship_id and not self._is_valid_uuid(ship_id):
                     try:
@@ -2714,6 +2715,7 @@ class Orchestrator:
 
                 target_character_id = ship_id if ship_id else self._character_id
 
+                # Phase: existing-task routing.
                 # If this ship already has an active task, route the new
                 # instruction into the existing steering path instead of
                 # starting a fresh task. This preserves in-flight progress
@@ -2736,7 +2738,7 @@ class Orchestrator:
                         "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
                     }
 
-                # Corp ship limit
+                # Phase: policy checks.
                 if ship_id:
                     corp_count = self._count_active_corp_tasks()
                     if corp_count >= MAX_CORP_SHIP_TASKS:
@@ -2745,6 +2747,7 @@ class Orchestrator:
                             "error": f"Cannot start more than {MAX_CORP_SHIP_TASKS} corp ship tasks.",
                         }
 
+                # Phase: build task payload.
                 task_type = self._get_task_type(ship_id)
                 task_metadata = {
                     "actor_character_id": self._character_id,
@@ -2766,92 +2769,7 @@ class Orchestrator:
                 if task_context:
                     payload["context"] = task_context
 
-                # Player tasks: reuse existing idle agent if available.
-                # The agent stays in _children with a running pipeline between
-                # tasks; request_task() triggers on_task_request which resets
-                # all state and starts fresh.
-                if not ship_id:
-                    existing = next(
-                        (
-                            c
-                            for c in self.children
-                            if isinstance(c, TaskAgent)
-                            and not c._is_corp_ship
-                            and not c._active_task_id
-                        ),
-                        None,
-                    )
-                    if existing:
-                        # Same ordering as a new agent: emit task.start
-                        # (which gates BYOA-owner auth) before dispatching,
-                        # so the child can't run tools without a (ship_id,
-                        # task_id) pair.
-                        framework_task_id = str(uuid.uuid4())
-                        server_err = await self._acquire_server_ship_lock(
-                            target_character_id=target_character_id,
-                            framework_task_id=framework_task_id,
-                            task_desc=task_desc,
-                            task_metadata=task_metadata,
-                            task_status=None,
-                        )
-                        if server_err:
-                            return server_err
-                        self._locked_ships[target_character_id] = framework_task_id
-                        # Universal hello handshake before dispatching to
-                        # the reused idle TaskAgent. For an in-process child
-                        # this returns ~immediately; for a future remote
-                        # BYOA agent this is where the cold-start wait
-                        # lives. On failure release the lock so a follow-up
-                        # start_task can immediately retry.
-                        try:
-                            await self._send_hello_and_wait(existing.name)
-                        except (asyncio.TimeoutError, RuntimeError) as exc:
-                            logger.warning(f"reuse-path hello with '{existing.name}' failed: {exc}")
-                            self._locked_ships.pop(target_character_id, None)
-                            try:
-                                await self._game_client.task_cancel(
-                                    task_id=framework_task_id,
-                                    character_id=self._character_id,
-                                )
-                            except Exception as release_exc:
-                                logger.warning(
-                                    f"task_cancel after reuse hello failure errored: {release_exc}"
-                                )
-                            return {
-                                "success": False,
-                                "error": (
-                                    "Task agent didn't acknowledge wake-up in time. "
-                                    "Try again in a moment."
-                                ),
-                            }
-                        try:
-                            await self._dispatch_task_with_id(
-                                existing.name,
-                                framework_task_id,
-                                payload=payload,
-                                timeout=self._task_agent_timeout,
-                            )
-                        except Exception:
-                            self._locked_ships.pop(target_character_id, None)
-                            try:
-                                await self._game_client.task_cancel(
-                                    task_id=framework_task_id,
-                                    character_id=self._character_id,
-                                )
-                            except Exception as exc:
-                                logger.warning(
-                                    f"task_cancel after reuse dispatch failure errored: {exc}"
-                                )
-                            raise
-                        self.update_polling_scope()
-                        return {
-                            "success": True,
-                            "message": "Task started",
-                            "task_id": framework_task_id,
-                            "task_type": task_type,
-                            "ship_character_id": target_character_id,
-                        }
-
+                # Phase: prepare a new worker.
                 # Corp-ship and player-ship TaskAgents both go over the bus
                 # to Orchestrator's broker. No separate AsyncGameClient is
                 # constructed per task — the broker uses the player-bound
@@ -2888,6 +2806,7 @@ class Orchestrator:
                         # case and releases the lock after
                         # agent_wake_timeout_seconds.
 
+                # Phase: acquire server-side lock.
                 # Server-side acquire BEFORE spawning the TaskAgent. A 409
                 # ship_busy or 403 byoa_private_not_owner here surfaces as a
                 # user-facing error without ever creating the local child.
@@ -2901,6 +2820,7 @@ class Orchestrator:
                 if server_err:
                     return server_err
 
+                # Phase: wake remote BYOA worker.
                 # BYOA dispatch. When the corp ship is BYOA-claimed the
                 # task runs in an operator-owned process subscribed to the
                 # bus. We don't spawn a local TaskAgent — we just publish
@@ -2979,6 +2899,7 @@ class Orchestrator:
                         "ship_character_id": target_character_id,
                     }
 
+                # Phase: spawn local worker.
                 agent_name = f"task_{uuid.uuid4().hex[:6]}"
                 task_agent = TaskAgent(
                     agent_name,
@@ -3005,7 +2926,6 @@ class Orchestrator:
                 except Exception:
                     self._locked_ships.pop(target_character_id, None)
                     self._pending_tasks.pop(agent_name, None)
-                    self._children = [c for c in self._children if c.name != agent_name]
                     # Best-effort task cancel so a partially-spawned agent
                     # doesn't leave a dangling task.
                     try:
@@ -3023,6 +2943,7 @@ class Orchestrator:
                         )
                     except Exception as exc:
                         logger.warning(f"failed to end task agent after startup failure: {exc}")
+                    self._children = [c for c in self._children if c.name != agent_name]
                     raise
 
                 return {
@@ -3214,7 +3135,7 @@ class Orchestrator:
             except Exception as e:
                 logger.error(f"Failed to cancel task: {e}")
 
-        # 4. End any remaining task agent pipelines (including idle player agent)
+        # 4. End any remaining task agent pipelines.
         for child in list(self._children):
             if isinstance(child, TaskAgent):
                 try:

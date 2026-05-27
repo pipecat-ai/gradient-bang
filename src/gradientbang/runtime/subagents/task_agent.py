@@ -323,11 +323,10 @@ class TaskAgent(LLMWorker):
         # correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
         self._byoa_presence_task: Optional[asyncio.Task] = None
-        # Idle teardown timer. Reset on every inbound task / tool call;
-        # fires BusEndWorkerMessage to self after
-        # agent_idle_teardown_seconds. In-process player-ship agents are
-        # reused across tasks, so the timer is disabled for them. Corp-ship
-        # agents and BYOA agents use it to eventually free their ship slot.
+        # Idle teardown timer. Local corp agents use a short grace period so
+        # final messages can drain before their pipeline ends. Local player
+        # agents are ended by the orchestrator on job response. BYOA agents
+        # self-end immediately after each task.
         self._idle_teardown_handle: Optional[asyncio.TimerHandle] = None
         self._tool_schemas: Dict[str, Any] = {t.name: t for t in self.build_tools()}
 
@@ -702,12 +701,12 @@ class TaskAgent(LLMWorker):
     # ── Idle teardown timer ──────────────────────────────────────────
 
     def _idle_teardown_enabled(self) -> bool:
-        """Player-ship agents are reused across tasks (the orchestrator
-        owns a single in-process TaskAgent that stays warm). Corp-ship
-        agents are one-shot but use a short idle timer so final messages
-        can drain. BYOA agents are also one-shot, but they must exit
-        immediately after each task so the next task always goes through
-        wake_agent.
+        """Return whether this agent should self-end after an idle grace.
+
+        Local corp-ship agents are one-shot but use a short idle timer so
+        final messages can drain. Local player-ship agents are one-shot too,
+        but the orchestrator ends them directly on job response. BYOA agents
+        self-end immediately so the next task always goes through wake_agent.
         """
         return self._is_corp_ship and not self._is_byoa_process_agent()
 
@@ -1390,9 +1389,10 @@ class TaskAgent(LLMWorker):
             pass  # Already responded
         finally:
             self._task_requester = None
-            # Task ended. Player-ship agents stay warm, in-process corp
-            # agents wind down via idle teardown, and BYOA workers exit now
-            # so every follow-up task gets a fresh wake_agent invocation.
+            # Task ended. Local corp agents wind down via idle teardown,
+            # local player agents are ended by the orchestrator on job
+            # response, and BYOA workers exit now so every follow-up task
+            # gets a fresh wake_agent invocation.
             if not await self._end_byoa_process_after_task(reason="task complete"):
                 self._arm_idle_teardown()
 
