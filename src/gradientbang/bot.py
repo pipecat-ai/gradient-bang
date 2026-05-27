@@ -314,7 +314,6 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         session_id=BOT_INSTANCE_ID or "",
         local_api_url=local_api_server.url if local_api_server else None,
         rtvi=rtvi,
-        new_player_onboarding_enabled=settings.BOT_NEW_PLAYER_ONBOARDING,
     )
 
     # ── Idle Reporting ─────────────────────────────────────────────────

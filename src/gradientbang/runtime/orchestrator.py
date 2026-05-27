@@ -88,7 +88,11 @@ from gradientbang.runtime.task_lookup import (
 )
 from gradientbang.runtime.voice_runtime import VoiceRuntime
 from gradientbang.utils.formatting import looks_like_uuid
-from gradientbang.utils.prompt_loader import apply_prompt_substitutions, set_prompt_substitutions
+from gradientbang.utils.prompt_loader import (
+    apply_prompt_substitutions,
+    render_onboarding_task_context,
+    set_prompt_substitutions,
+)
 from gradientbang.utils.weave_tracing import traced
 
 
@@ -133,13 +137,13 @@ class Orchestrator:
         session_id: str,
         local_api_url: str | None,
         rtvi: RTVIProcessor,
-        new_player_onboarding_enabled: bool = True,
     ) -> None:
         self.auth = auth
         self.session_id = session_id
         self.local_api_url = local_api_url
         self.rtvi = rtvi
-        self._new_player_onboarding_enabled = new_player_onboarding_enabled
+        self._new_player_onboarding_enabled = settings.BOT_NEW_PLAYER_ONBOARDING
+        self._onboarding_task_context: str | None = None
         self.bus: AgentBus | None = None
         self.voice_worker: PipelineWorker | None = None
         self.game_client: AsyncGameClient | None = None
@@ -189,14 +193,12 @@ class Orchestrator:
         session_id: str,
         local_api_url: str | None,
         rtvi: RTVIProcessor,
-        new_player_onboarding_enabled: bool = True,
     ) -> "Orchestrator":
         orch = cls(
             auth=auth,
             session_id=session_id,
             local_api_url=local_api_url,
             rtvi=rtvi,
-            new_player_onboarding_enabled=new_player_onboarding_enabled,
         )
         # AsyncGameClient construction is pure-config — no IO until the first
         # RPC. base_url comes from settings.SUPABASE_URL; functions_url is the
@@ -488,6 +490,11 @@ class Orchestrator:
             character_display_name=self.auth.display_name,
             new_player_onboarding_enabled=self._new_player_onboarding_enabled,
         )
+        self._onboarding_task_context = (
+            render_onboarding_task_context(initial_state.onboarding_route)
+            if initial_state.is_new_player and self._new_player_onboarding_enabled
+            else None
+        )
         # ScriptedAgent reminder: the old tutorial takeover branched here.
         # This runtime does not wire that pipeline yet. When it does, thread
         # BotRuntimeConfig.bypass_tutorial through and restore this branch:
@@ -749,7 +756,11 @@ class Orchestrator:
         return "session" in task_desc.lower()
 
     def _build_task_start_context(
-        self, task_desc: str, explicit_context: Optional[str]
+        self,
+        task_desc: str,
+        explicit_context: Optional[str],
+        *,
+        include_onboarding_context: bool = True,
     ) -> Optional[str]:
         parts: list[str] = []
 
@@ -767,6 +778,9 @@ class Orchestrator:
                 f"{session_started_at}. Use this as the upper bound of the current "
                 "session when interpreting requests about the last or previous session."
             )
+
+        if include_onboarding_context and self._onboarding_task_context:
+            parts.append(self._onboarding_task_context)
 
         return "\n\n".join(parts) if parts else None
 
@@ -2738,7 +2752,12 @@ class Orchestrator:
                         self.event_relay.actor_ship_id if self.event_relay else None
                     ),
                 }
-                task_context = self._build_task_start_context(task_desc, explicit_context)
+                is_player_ship_task = task_type == "player_ship"
+                task_context = self._build_task_start_context(
+                    task_desc,
+                    explicit_context,
+                    include_onboarding_context=is_player_ship_task,
+                )
                 payload = {"task_description": task_desc, "task_metadata": task_metadata}
                 if task_context:
                     payload["context"] = task_context

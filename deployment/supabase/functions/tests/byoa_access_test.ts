@@ -710,3 +710,94 @@ Deno.test({
     );
   },
 });
+
+// ============================================================================
+// Group 6: Refuse claim when a human corp member is piloting the ship
+// ============================================================================
+
+Deno.test({
+  name:
+    "byoa_access — claim refused when ship is piloted by a human corp member",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let p1User: TestUser;
+
+    await t.step(
+      "seed corp + point P2's current_ship_id at the corp ship",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 50_000);
+        const seeded = await seedCorpWithMembers(
+          p1Id,
+          [p2Id],
+          "Human Pilot Corp",
+        );
+        corpShipId = seeded.corpShipId;
+        await withPg(async (pg) => {
+          await pg.queryObject(
+            `UPDATE characters SET current_ship_id = $1 WHERE character_id = $2`,
+            [corpShipId, p2Id],
+          );
+        });
+        p1User = await provisionUser("byoa-human-pilot-p1", p1Id);
+      },
+    );
+
+    await t.step("P1 claim → 409 ship_human_piloted", async () => {
+      const result = await apiAs(p1User.accessToken, "ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "claim",
+      });
+      assertEquals(result.status, 409);
+      assertEquals(
+        (result.body as Record<string, unknown>).error,
+        "ship_human_piloted",
+      );
+      const row = await readShipByoa(corpShipId);
+      assertEquals(row?.byoa_owner_character_id, null);
+    });
+
+    await t.step("list omits the human-piloted corp ship", async () => {
+      const result = await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
+        character_id: p1Id,
+        action: "list",
+      });
+      const ships = (result as Record<string, unknown>).ships as Array<
+        Record<string, unknown>
+      >;
+      assertEquals(
+        ships.find((s) => s.ship_id === corpShipId),
+        undefined,
+        "human-piloted corp ship should not appear in claimable list",
+      );
+    });
+
+    await t.step(
+      "once P2 leaves the ship, P1 can claim it",
+      async () => {
+        await withPg(async (pg) => {
+          await pg.queryObject(
+            `UPDATE characters SET current_ship_id = $1 WHERE character_id = $2`,
+            [await shipIdFor(P2), p2Id],
+          );
+        });
+        const result = await apiAsOk(
+          p1User.accessToken,
+          "ship_byoa_configure",
+          {
+            character_id: p1Id,
+            ship_id: corpShipId,
+            action: "claim",
+          },
+        );
+        const body = result as Record<string, unknown>;
+        assertEquals(body.byoa_owner_character_id, p1Id);
+      },
+    );
+  },
+});

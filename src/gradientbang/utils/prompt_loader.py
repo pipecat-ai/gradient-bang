@@ -276,6 +276,19 @@ def build_task_agent_prompt(custom_prompt: Optional[str] = None) -> str:
     )
 
 
+def render_onboarding_task_context(route: Optional[list[int]]) -> str:
+    """Render private new-player navigation context for a TaskAgent."""
+    if route and len(route) > 1:
+        route_str = " -> ".join(str(sector) for sector in route)
+    else:
+        route_str = "unavailable"
+
+    content = load_prompt("fragments/onboarding_task_agent.md").format(
+        route_to_megaport=route_str,
+    )
+    return f'<event name="onboarding.navigation">\n{content}\n</event>'
+
+
 def build_ui_agent_prompt() -> str:
     """Build the complete system prompt for the UI agent.
 

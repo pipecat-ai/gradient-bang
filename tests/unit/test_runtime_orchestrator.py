@@ -7,6 +7,7 @@ from gradientbang.config import PLAYER_AGENT_NAME
 from gradientbang.game.auth import Auth
 from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.voice_runtime import VOICE_TOOL_HANDLERS
+from gradientbang.utils.prompt_loader import render_onboarding_task_context
 
 pytestmark = pytest.mark.unit
 
@@ -92,6 +93,55 @@ def _attach(orch: Orchestrator, worker: _VoiceWorker, *, context=object(), trans
         transport=transport,
     )
     return voice_llm
+
+
+def test_task_start_context_includes_onboarding_navigation_xml() -> None:
+    orch = _orchestrator()
+    orch._onboarding_task_context = render_onboarding_task_context([7, 8, 9])
+
+    context = orch._build_task_start_context("find the mega-port", "Use the scout ship.")
+
+    assert context is not None
+    assert "Use the scout ship." in context
+    assert '<event name="onboarding.navigation">' in context
+    assert "Route to nearest mega-port: 7 -> 8 -> 9" in context
+    assert 'region is "Federation Space"' in context
+    assert "Do not reveal the sector list or route numbers to the player." in context
+
+
+def test_task_start_context_omits_onboarding_navigation_when_disabled() -> None:
+    orch = _orchestrator()
+    orch._onboarding_task_context = None
+
+    context = orch._build_task_start_context("find the mega-port", None)
+
+    assert context is None
+
+
+def test_task_start_context_omits_onboarding_navigation_for_non_personal_ship_tasks() -> None:
+    orch = _orchestrator()
+    orch._onboarding_task_context = render_onboarding_task_context([7, 8, 9])
+
+    context = orch._build_task_start_context(
+        "find the mega-port",
+        "Use the corp ship.",
+        include_onboarding_context=False,
+    )
+
+    assert context == "Use the corp ship."
+    assert '<event name="onboarding.navigation">' not in context
+    assert "Route to nearest mega-port" not in context
+
+
+def test_task_start_context_handles_missing_onboarding_route() -> None:
+    orch = _orchestrator()
+    orch._onboarding_task_context = render_onboarding_task_context(None)
+
+    context = orch._build_task_start_context("find the mega-port", None)
+
+    assert context is not None
+    assert '<event name="onboarding.navigation">' in context
+    assert "Route to nearest mega-port: unavailable" in context
 
 
 def test_attach_requires_player_worker_name() -> None:

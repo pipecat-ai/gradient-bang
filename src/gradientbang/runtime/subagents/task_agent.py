@@ -330,6 +330,7 @@ class TaskAgent(LLMWorker):
 
         # ── Task state ──
         self._active_task_id: Optional[str] = None
+        self._last_completed_task_id: Optional[str] = None
         self._task_requester: Optional[str] = None
         self._task_description: Optional[str] = None
         self._task_finished = False
@@ -1388,6 +1389,7 @@ class TaskAgent(LLMWorker):
         # Any tool-call futures still pending here would leak; cancel them
         # before tearing down so awaiting handlers wind up cleanly.
         self._pending.cancel_all("task complete")
+        self._last_completed_task_id = framework_task_id
         self._active_task_id = None  # Stop processing events
         _STATUS_MAP = {"completed": JobStatus.COMPLETED, "cancelled": JobStatus.CANCELLED}
         status = _STATUS_MAP.get(self._task_finished_status, JobStatus.FAILED)
@@ -1567,7 +1569,7 @@ class TaskAgent(LLMWorker):
             self._inference_dispatch_time = None
             raise
 
-    def _progress_message_for_reasons(self, reasons: List[str]) -> str:
+    def _progress_message_for_reasons(self, reasons: List[str]) -> Optional[str]:
         if any(reason == "event.query" for reason in reasons):
             return "Analyzing query results..."
         if "steering" in reasons:
@@ -1576,12 +1578,12 @@ class TaskAgent(LLMWorker):
             return "Reviewing loaded reference info..."
         if any(reason.startswith("tool(plot_course):") for reason in reasons):
             return "Planning route from the latest map data..."
-        if reasons and any(reason != "no_tool_nudge" for reason in reasons):
-            return "Reviewing latest results..."
-        return "Choosing the next step..."
+        return None
 
     def _emit_synthetic_progress_message(self, reasons: List[str]) -> None:
         message = self._progress_message_for_reasons(reasons)
+        if message is None:
+            return
         if (
             message == self._last_synthetic_progress_message
             and self._task_output_progress_epoch == self._last_synthetic_progress_epoch

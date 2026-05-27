@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Centralized runtime configuration in `gradientbang.config` using `pydantic-settings`.
 - Repository structure tidy-up and runtime module reorganization under `src/gradientbang/runtime/`.
 - Migrated to the latest Pipecat SubAgents spec — `PipelineWorker`-hosted `Orchestrator`, bus-based `TaskAgent` workers, and the universal wake-up handshake aligned to the current `pipecat-ai-subagents` API.
+- New-player onboarding now keeps the generated mega-port route as session-scoped private TaskAgent startup context for player-ship tasks, controlled by `BOT_NEW_PLAYER_ONBOARDING`.
 
 ## [0.5.6] - 2026-05-21
 

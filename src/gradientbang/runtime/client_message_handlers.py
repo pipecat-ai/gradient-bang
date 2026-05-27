@@ -709,7 +709,11 @@ class ClientMessageHandler:
                     c
                     for c in children
                     if isinstance(c, TaskAgent)
-                    and (c.name == task_id or c._active_task_id == task_id)
+                    and (
+                        c.name == task_id
+                        or c._active_task_id == task_id
+                        or c._last_completed_task_id == task_id
+                    )
                 ),
                 None,
             )

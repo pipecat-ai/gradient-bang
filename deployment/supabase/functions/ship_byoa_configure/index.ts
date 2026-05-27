@@ -351,6 +351,19 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
           409,
         );
       }
+      // Block claiming a ship currently piloted by a human corp member —
+      // BYOA is for handing off AI control of NPC-piloted corp ships, not
+      // for hijacking the ship a teammate is actively flying.
+      const humanPilots = await shipIdsPilotedByHumans(supabase, [shipId]);
+      if (humanPilots.has(shipId)) {
+        return new Response(
+          JSON.stringify({
+            error: "ship_human_piloted",
+            ship_id: shipId,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
       nextOwner = characterId;
       nextMode = mode ?? "private";
     } else {
@@ -573,7 +586,11 @@ async function listClaimableShipsForCharacter(
     throw new Error("Failed to load ship instances");
   }
 
-  return (shipRows ?? []).map((row): ClaimableShip => {
+  const humanPilots = await shipIdsPilotedByHumans(supabase, shipIds);
+
+  return (shipRows ?? [])
+    .filter((row) => !humanPilots.has(row.ship_id as string))
+    .map((row): ClaimableShip => {
     const ownerId = (row?.byoa_owner_character_id as string | null) ?? null;
     return {
       ship_id: row.ship_id as string,
@@ -619,6 +636,34 @@ async function updateByoaState(params: {
       .is("byoa_owner_character_id", null)
       .select("ship_id")
       .maybeSingle();
+}
+
+/**
+ * Return the subset of `shipIds` that have at least one real (non-NPC)
+ * character with `current_ship_id` pointing at them. Used to block BYOA
+ * claims on ships a human corp member is currently flying.
+ */
+async function shipIdsPilotedByHumans(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  shipIds: string[],
+): Promise<Set<string>> {
+  if (!shipIds.length) return new Set();
+  const { data, error } = await supabase
+    .from("characters")
+    .select("current_ship_id")
+    .in("current_ship_id", shipIds)
+    .eq("is_npc", false);
+  if (error) {
+    console.error("ship_byoa_configure.human_pilot_lookup", error);
+    throw new Error("Failed to check human pilots");
+  }
+  const pilots = new Set<string>();
+  for (const row of (data ?? []) as Array<{ current_ship_id: string | null }>) {
+    if (typeof row.current_ship_id === "string") {
+      pilots.add(row.current_ship_id);
+    }
+  }
+  return pilots;
 }
 
 async function rollbackQuietly(
