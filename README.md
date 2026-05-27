@@ -125,7 +125,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/register \
 Install Python dependencies:
 
 ```bash
-uv sync --all-groups
+uv sync
 ```
 
 Copy the `env.bot.example` file and add your keys (see [Bot environment variables](#bot-env-bot) for the full list):
