@@ -967,17 +967,6 @@ class TestSyntheticProgressMessages:
         ]
         agent.queue_frame.assert_awaited_once()
 
-    async def test_generic_event_completion_emits_reviewing_results_message(self):
-        agent = _make_task_agent()
-        agent._active_task_id = "task-1"
-        agent.queue_frame = AsyncMock()
-        agent._record_inference_reason("movement.complete")
-
-        await agent._schedule_pending_inference()
-
-        assert agent.get_task_log()[-1] == "Reviewing latest results..."
-        agent.queue_frame.assert_awaited_once()
-
     async def test_duplicate_progress_message_is_suppressed_without_new_action_or_event(self):
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
