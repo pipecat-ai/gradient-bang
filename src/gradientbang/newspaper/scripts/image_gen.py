@@ -13,7 +13,6 @@ import argparse
 import asyncio
 import base64
 import json
-import os
 from pathlib import Path
 import re
 import sys
@@ -21,6 +20,8 @@ import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from io import BytesIO
+
+from gradientbang.config import settings
 
 DEFAULT_MODEL = "gpt-image-2"
 DEFAULT_SIZE = "auto"
@@ -67,7 +68,7 @@ def _dependency_hint(package: str, *, upgrade: bool = False) -> str:
 
 
 def _ensure_api_key(dry_run: bool) -> None:
-    if os.getenv("OPENAI_API_KEY"):
+    if settings.OPENAI_API_KEY:
         print("OPENAI_API_KEY is set.", file=sys.stderr)
         return
     if dry_run:

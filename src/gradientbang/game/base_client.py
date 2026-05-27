@@ -1189,7 +1189,7 @@ class BaseAsyncGameClient:
             ship_id: Corp ship pseudo-character_id being delegated to.
             channel: Bot's subagent-bus channel — the BYOA joins this.
                 This is the derived per-session channel, not the static
-                ``SUBAGENT_BUS_CHANNEL`` prefix.
+                ``SUBAGENT_BUS_SESSION_CHANNEL`` value.
             task_id: Optional active task UUID for the wake/spawn path.
 
         Returns:

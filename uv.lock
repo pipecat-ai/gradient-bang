@@ -1203,26 +1203,22 @@ name = "gradient-bang"
 version = "0.6.0"
 source = { editable = "." }
 dependencies = [
-    { name = "google-genai" },
+    { name = "boto3" },
+    { name = "cekura", extra = ["pipecat"] },
     { name = "httpx" },
     { name = "loguru" },
-    { name = "openai" },
     { name = "pillow" },
+    { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "gradium", "pgmq", "runner", "webrtc"] },
+    { name = "pipecat-ai-cli" },
+    { name = "pipecatcloud" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic-settings" },
     { name = "python-dotenv" },
-    { name = "rich" },
+    { name = "soundfile" },
     { name = "supabase" },
 ]
 
 [package.dev-dependencies]
-bot = [
-    { name = "boto3" },
-    { name = "cekura", extra = ["pipecat"] },
-    { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "gradium", "pgmq", "runner", "webrtc"] },
-    { name = "pipecat-ai-cli" },
-    { name = "pipecatcloud" },
-    { name = "soundfile" },
-]
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1239,26 +1235,22 @@ worldgen = [
 
 [package.metadata]
 requires-dist = [
-    { name = "google-genai", specifier = ">=0.7.0" },
+    { name = "boto3", specifier = ">=1.35.0" },
+    { name = "cekura", extras = ["pipecat"], specifier = "==1.2.0rc3" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.0" },
-    { name = "openai", specifier = "==1.99.5" },
     { name = "pillow", specifier = ">=11.3.0" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "gradium", "webrtc", "silero", "google", "anthropic", "runner", "pgmq"], git = "https://github.com/pipecat-ai/pipecat.git?branch=aleix%2Fport-subagents-to-pipecat" },
+    { name = "pipecat-ai-cli" },
+    { name = "pipecatcloud", specifier = ">=0.6.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.1" },
+    { name = "pydantic-settings", specifier = ">=2,<3" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "rich", specifier = ">=13.0.0" },
+    { name = "soundfile", specifier = ">=0.12.0" },
     { name = "supabase", specifier = ">=2.24.0" },
 ]
 
 [package.metadata.requires-dev]
-bot = [
-    { name = "boto3", specifier = ">=1.35.0" },
-    { name = "cekura", extras = ["pipecat"], specifier = "==1.2.0rc3" },
-    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "gradium", "webrtc", "silero", "google", "anthropic", "runner", "pgmq"], git = "https://github.com/pipecat-ai/pipecat.git?branch=aleix%2Fport-subagents-to-pipecat" },
-    { name = "pipecat-ai-cli" },
-    { name = "pipecatcloud", specifier = ">=0.6.0" },
-    { name = "soundfile", specifier = ">=0.12.0" },
-]
 dev = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },

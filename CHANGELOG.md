@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Centralized runtime configuration in `gradientbang.config` using `pydantic-settings`.
 - Repository structure tidy-up and runtime module reorganization under `src/gradientbang/runtime/`.
 - Migrated to the latest Pipecat SubAgents spec — `PipelineWorker`-hosted `Orchestrator`, bus-based `TaskAgent` workers, and the universal wake-up handshake aligned to the current `pipecat-ai-subagents` API.
 

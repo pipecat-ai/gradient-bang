@@ -11,9 +11,9 @@ Branches on the ``EVENT_TRANSPORT`` env var:
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
+from gradientbang.config import Settings
 from gradientbang.game.transport.base import EventAdapter
 from gradientbang.game.transport.polling import PollingEventAdapter
 from gradientbang.game.transport.pubsub import PubsubEventAdapter
@@ -27,7 +27,7 @@ _VALID_TRANSPORTS = {"polling", "pubsub"}
 
 def make_event_adapter(client: "AsyncGameClient") -> EventAdapter:
     """Construct the event adapter for the given client based on env config."""
-    transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
+    transport = Settings().EVENT_TRANSPORT.strip().lower()
     if transport not in _VALID_TRANSPORTS:
         raise ValueError(
             f"unknown EVENT_TRANSPORT={transport!r}; "

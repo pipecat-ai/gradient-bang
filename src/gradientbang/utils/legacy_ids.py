@@ -2,25 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 
+from gradientbang.config import settings
 
-LEGACY_NAMESPACE = uuid.UUID(
-    os.environ.get("SUPABASE_LEGACY_ID_NAMESPACE", "5a53c4f5-8f16-4be6-8d3d-2620f4c41b3b")
-)
-SHIP_NAMESPACE = uuid.UUID(
-    os.environ.get("SUPABASE_SHIP_ID_NAMESPACE", "b7b87641-1c44-4ed1-8e9c-5f671484b1a9")
-)
+LEGACY_NAMESPACE = uuid.UUID(settings.SUPABASE_LEGACY_ID_NAMESPACE)
+SHIP_NAMESPACE = uuid.UUID(settings.SUPABASE_SHIP_ID_NAMESPACE)
 
 
 def _allow_legacy_ids() -> bool:
-    return os.environ.get("SUPABASE_ALLOW_LEGACY_IDS", "0").strip().lower() in {
-        "1",
-        "true",
-        "on",
-        "yes",
-    }
+    return settings.SUPABASE_ALLOW_LEGACY_IDS
 
 
 def canonicalize_character_id(character_id: str) -> str:

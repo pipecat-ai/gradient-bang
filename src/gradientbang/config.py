@@ -1,18 +1,14 @@
 """Centralized config for gradientbang.
 
-Loads `.env.bot` at import time and exposes a typed `settings` singleton
-listing every environment variable the app respects, with defaults and
-descriptions.
-
-Prefer importing constants and ``settings`` from here for runtime code. Change
-``ENV_FILE`` below to load a different env file.
+Loads ``.env.bot`` into process env, then exposes a typed ``settings`` object.
+Prefer importing constants and ``settings`` from here for runtime code.
 """
 
-import os
 import re
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLAYER_AGENT_NAME = "player"
 MAX_CORP_SHIP_TASKS = 3
@@ -29,19 +25,17 @@ ENV_FILE = ".env.bot"
 load_dotenv(ENV_FILE, override=False)
 
 
-def _b(name: str, default: bool) -> bool:
-    """Parse a boolean env var. Accepts 1/true/yes/on (case-insensitive)."""
-    v = os.getenv(name)
-    if v is None:
-        return default
-    return v.strip().lower() in {"1", "true", "yes", "on"}
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
 
-
-class Settings(BaseModel):
     # ===== Logging =====
     LOGURU_LEVEL: str = Field(
         default="INFO",
         description="Loguru minimum log level. One of TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL.",
+    )
+    LOG_LEVEL: str | None = Field(
+        default=None,
+        description="Legacy logging level alias used by older scripts. Prefer LOGURU_LEVEL.",
     )
 
     # ===== Supabase & game server =====
@@ -68,6 +62,18 @@ class Settings(BaseModel):
     SUPABASE_EVENT_LOG_PATH: str | None = Field(
         default=None,
         description="Debug-only path to append a JSONL trace of Supabase events. Unset in normal operation.",
+    )
+    SUPABASE_LEGACY_ID_NAMESPACE: str = Field(
+        default="5a53c4f5-8f16-4be6-8d3d-2620f4c41b3b",
+        description="UUID namespace used to map legacy character labels to stable UUIDs.",
+    )
+    SUPABASE_SHIP_ID_NAMESPACE: str = Field(
+        default="b7b87641-1c44-4ed1-8e9c-5f671484b1a9",
+        description="UUID namespace used to map legacy ship labels to stable UUIDs.",
+    )
+    SUPABASE_ALLOW_LEGACY_IDS: bool = Field(
+        default=False,
+        description="Allow non-UUID legacy character identifiers by mapping them to UUIDv5.",
     )
 
     # ===== Edge functions / local API =====
@@ -113,8 +119,8 @@ class Settings(BaseModel):
         default=3,
         description="Max number of times a single PGMQ message will be re-dispatched on handler failure before being dropped.",
     )
-    EVENT_SESSION_HEARTBEAT_SECONDS: int = Field(
-        default=15,
+    EVENT_SESSION_HEARTBEAT_SECONDS: float = Field(
+        default=15.0,
         description="How often the event session writes a heartbeat row, so other consumers know it's alive.",
     )
     EVENT_SESSION_TTL_SECONDS: int = Field(
@@ -167,6 +173,10 @@ class Settings(BaseModel):
         default=None,
         description="Override the generated subagent bus channel name. Normally auto-generated per bot instance.",
     )
+    SUBAGENT_BUS_CHANNEL: str | None = Field(
+        default=None,
+        description="Retired bus-channel env name kept visible for older .env.bot files. Use SUBAGENT_BUS_SESSION_CHANNEL for the active runtime.",
+    )
 
     # ===== LLM: voice runtime =====
     VOICE_LLM_PROVIDER: str = Field(
@@ -181,8 +191,8 @@ class Settings(BaseModel):
         default=0,
         description="Extended-thinking token budget for the voice runtime. 0 disables.",
     )
-    VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: int = Field(
-        default=20,
+    VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: float = Field(
+        default=20.0,
         description="Per-tool-call timeout (seconds) for the voice runtime before falling back / cancelling.",
     )
 
@@ -199,13 +209,17 @@ class Settings(BaseModel):
         default=4096,
         description="Extended-thinking token budget for TaskAgent. Higher than voice runtime because tasks are autonomous.",
     )
-    TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: int = Field(
-        default=20,
+    TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: float = Field(
+        default=20.0,
         description="Per-tool-call timeout (seconds) for the TaskAgent.",
     )
-    TASK_AGENT_TIMEOUT: int = Field(
-        default=0,
+    TASK_AGENT_TIMEOUT: float = Field(
+        default=0.0,
         description="Hard timeout (seconds) for an entire TaskAgent run. 0 = no limit.",
+    )
+    TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS: float = Field(
+        default=1.0,
+        description="Seconds TaskAgent waits for nearby batched game events before resuming inference.",
     )
 
     # ===== LLM: context summarization =====
@@ -232,27 +246,27 @@ class Settings(BaseModel):
         description="Extended-thinking token budget for UIAgent. 0 disables.",
     )
     UI_AGENT_STATUS_TIMEOUT_SECS: float = Field(
-        default=30.0,
+        default=10.0,
         description="Timeout (seconds) for UIAgent status RPCs.",
     )
     UI_AGENT_PORTS_LIST_TIMEOUT_SECS: float = Field(
-        default=30.0,
+        default=15.0,
         description="Timeout (seconds) for the UIAgent 'list ports' RPC.",
     )
     UI_AGENT_SHIPS_LIST_TIMEOUT_SECS: float = Field(
-        default=30.0,
+        default=15.0,
         description="Timeout (seconds) for the UIAgent 'list ships' RPC.",
     )
     UI_AGENT_COURSE_PLOT_TIMEOUT_SECS: float = Field(
-        default=30.0,
+        default=25.0,
         description="Timeout (seconds) for the UIAgent 'plot course' RPC.",
     )
     UI_AGENT_PORTS_LIST_STALE_SECS: float = Field(
-        default=300.0,
+        default=60.0,
         description="After this many seconds, the cached ports list is considered stale and re-fetched.",
     )
     UI_AGENT_SHIPS_CACHE_TTL_SECS: float = Field(
-        default=3600.0,
+        default=60.0,
         description="TTL (seconds) for the UIAgent ships cache.",
     )
 
@@ -268,6 +282,10 @@ class Settings(BaseModel):
     GOOGLE_API_KEY: str | None = Field(
         default=None,
         description="Google AI Studio API key. Required when any *_LLM_PROVIDER=google.",
+    )
+    MINIMAX_API_KEY: str | None = Field(
+        default=None,
+        description="MiniMax API key. Required when any *_LLM_PROVIDER=minimax.",
     )
     MINIMAX_BASE_URL: str = Field(
         default="https://api.minimax.io/v1",
@@ -357,12 +375,12 @@ class Settings(BaseModel):
         default=None,
         description="Pre-baked access token used by the test character flow.",
     )
-    BOT_IDLE_REPORT_TIME: int = Field(
-        default=9,
+    BOT_IDLE_REPORT_TIME: float = Field(
+        default=9.0,
         description="Seconds of conversational silence before the bot considers the player idle.",
     )
-    BOT_IDLE_REPORT_COOLDOWN: int = Field(
-        default=45,
+    BOT_IDLE_REPORT_COOLDOWN: float = Field(
+        default=45.0,
         description="Minimum seconds between consecutive idle-report nudges.",
     )
     BOT_IDLE_REPORT_ENABLED: bool = Field(
@@ -390,6 +408,22 @@ class Settings(BaseModel):
     BYOA_AGENT_IDLE_TEARDOWN_SECONDS: float = Field(
         default=300.0,
         description="If a BYOA agent has no activity for this long (seconds), the harness tears it down.",
+    )
+    BYOA_WAKE_TARGET: str = Field(
+        default="noop",
+        description="wake_agent spawn target. The Supabase edge function reads this when waking external BYOA runners.",
+    )
+    BYOA_BUS_DATABASE_URL: str | None = Field(
+        default=None,
+        description="Restricted BYOA bus DSN handed to external BYOA runner processes by wake_agent.",
+    )
+    BYOA_BUS_DB_USER: str = Field(
+        default="byoa_login",
+        description="Postgres role name used when provisioning the restricted BYOA bus login.",
+    )
+    BYOA_BUS_DB_PASSWORD: str | None = Field(
+        default=None,
+        description="Password used when provisioning the restricted BYOA bus login.",
     )
     BYOA_TASK_ID: str | None = Field(
         default=None,
@@ -426,8 +460,12 @@ class Settings(BaseModel):
         description="Cekura agent identifier this bot instance reports as.",
     )
     CEKURA_TRACER_ENABLED: bool = Field(
-        default=False,
+        default=True,
         description="Master toggle for the Cekura tracer.",
+    )
+    TOKEN_USAGE_LOG: str | None = Field(
+        default=None,
+        description="Optional CSV path for LLM token usage logging.",
     )
 
     # ===== Data directories =====
@@ -441,120 +479,4 @@ class Settings(BaseModel):
     )
 
 
-settings = Settings(
-    # Logging
-    LOGURU_LEVEL=os.getenv("LOGURU_LEVEL", "INFO"),
-    # Supabase & game server
-    SUPABASE_URL=os.getenv("SUPABASE_URL"),
-    SUPABASE_SERVICE_ROLE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-    SUPABASE_ANON_KEY=os.getenv("SUPABASE_ANON_KEY", "anon-key"),
-    SUPABASE_API_TOKEN=os.getenv("SUPABASE_API_TOKEN"),
-    SUPABASE_ADMIN_DEFAULT_CREDITS=os.getenv("SUPABASE_ADMIN_DEFAULT_CREDITS", 25000),
-    SUPABASE_EVENT_LOG_PATH=os.getenv("SUPABASE_EVENT_LOG_PATH"),
-    # Edge functions / local API
-    EDGE_FUNCTIONS_URL=os.getenv("EDGE_FUNCTIONS_URL"),
-    EDGE_API_TOKEN=os.getenv("EDGE_API_TOKEN"),
-    EDGE_FUNCTIONS_DIR=os.getenv("EDGE_FUNCTIONS_DIR"),
-    LOCAL_API_PORT=os.getenv("LOCAL_API_PORT", 54380),
-    LOCAL_API_POSTGRES_URL=os.getenv("LOCAL_API_POSTGRES_URL"),
-    # Event transport (pubsub / polling)
-    EVENT_TRANSPORT=os.getenv("EVENT_TRANSPORT", "pubsub"),
-    PGMQ_URL=os.getenv("PGMQ_URL"),
-    PGMQ_RECONNECT_BACKOFF_MAX=os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", 10.0),
-    PGMQ_NO_EVENTS_WARNING_SECONDS=os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", 30.0),
-    PGMQ_MAX_DISPATCH_ATTEMPTS=os.getenv("PGMQ_MAX_DISPATCH_ATTEMPTS", 3),
-    EVENT_SESSION_HEARTBEAT_SECONDS=os.getenv("EVENT_SESSION_HEARTBEAT_SECONDS", 15),
-    EVENT_SESSION_TTL_SECONDS=os.getenv("EVENT_SESSION_TTL_SECONDS", 60),
-    EVENT_SESSION_HARD_TTL_SECONDS=os.getenv("EVENT_SESSION_HARD_TTL_SECONDS", 21600),
-    EVENT_SESSION_VISIBILITY_TIMEOUT_SECONDS=os.getenv(
-        "EVENT_SESSION_VISIBILITY_TIMEOUT_SECONDS", 10
-    ),
-    EVENT_SESSION_EMPTY_POLL_INTERVAL_SECONDS=os.getenv(
-        "EVENT_SESSION_EMPTY_POLL_INTERVAL_SECONDS", 1.0
-    ),
-    EVENT_SESSION_BATCH_QTY=os.getenv("EVENT_SESSION_BATCH_QTY", 100),
-    EVENT_SESSION_BOOTSTRAP_DRAIN_TIMEOUT_SECONDS=os.getenv(
-        "EVENT_SESSION_BOOTSTRAP_DRAIN_TIMEOUT_SECONDS", 2.0
-    ),
-    SUPABASE_POLL_INTERVAL_SECONDS=os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", 1.0),
-    SUPABASE_POLL_LIMIT=os.getenv("SUPABASE_POLL_LIMIT"),
-    SUPABASE_POLL_BACKOFF_MAX=os.getenv("SUPABASE_POLL_BACKOFF_MAX", 5.0),
-    # Subagent bus
-    SUBAGENT_BUS_TRANSPORT=os.getenv("SUBAGENT_BUS_TRANSPORT", "local"),
-    SUBAGENT_BUS_DATABASE_URL=os.getenv("SUBAGENT_BUS_DATABASE_URL"),
-    SUBAGENT_BUS_SESSION_CHANNEL=os.getenv("SUBAGENT_BUS_SESSION_CHANNEL"),
-    # LLM: voice agent
-    VOICE_LLM_PROVIDER=os.getenv("VOICE_LLM_PROVIDER", "google"),
-    VOICE_LLM_MODEL=os.getenv("VOICE_LLM_MODEL"),
-    VOICE_LLM_THINKING_BUDGET=os.getenv("VOICE_LLM_THINKING_BUDGET", 0),
-    VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS=os.getenv("VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS", 20),
-    # LLM: task agent
-    TASK_LLM_PROVIDER=os.getenv("TASK_LLM_PROVIDER", "google"),
-    TASK_LLM_MODEL=os.getenv("TASK_LLM_MODEL"),
-    TASK_LLM_THINKING_BUDGET=os.getenv("TASK_LLM_THINKING_BUDGET", 4096),
-    TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS=os.getenv("TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS", 20),
-    TASK_AGENT_TIMEOUT=os.getenv("TASK_AGENT_TIMEOUT", 0),
-    # LLM: context summarization
-    SUMMARIZATION_LLM_PROVIDER=os.getenv("SUMMARIZATION_LLM_PROVIDER", "google"),
-    SUMMARIZATION_LLM_MODEL=os.getenv("SUMMARIZATION_LLM_MODEL", "gemini-2.5-flash"),
-    # LLM: UI agent
-    UI_AGENT_LLM_PROVIDER=os.getenv("UI_AGENT_LLM_PROVIDER", "google"),
-    UI_AGENT_LLM_MODEL=os.getenv("UI_AGENT_LLM_MODEL", "gemini-2.5-flash"),
-    UI_AGENT_LLM_THINKING_BUDGET=os.getenv("UI_AGENT_LLM_THINKING_BUDGET", 0),
-    UI_AGENT_STATUS_TIMEOUT_SECS=os.getenv("UI_AGENT_STATUS_TIMEOUT_SECS", 30.0),
-    UI_AGENT_PORTS_LIST_TIMEOUT_SECS=os.getenv("UI_AGENT_PORTS_LIST_TIMEOUT_SECS", 30.0),
-    UI_AGENT_SHIPS_LIST_TIMEOUT_SECS=os.getenv("UI_AGENT_SHIPS_LIST_TIMEOUT_SECS", 30.0),
-    UI_AGENT_COURSE_PLOT_TIMEOUT_SECS=os.getenv("UI_AGENT_COURSE_PLOT_TIMEOUT_SECS", 30.0),
-    UI_AGENT_PORTS_LIST_STALE_SECS=os.getenv("UI_AGENT_PORTS_LIST_STALE_SECS", 300.0),
-    UI_AGENT_SHIPS_CACHE_TTL_SECS=os.getenv("UI_AGENT_SHIPS_CACHE_TTL_SECS", 3600.0),
-    # LLM provider keys
-    OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
-    ANTHROPIC_API_KEY=os.getenv("ANTHROPIC_API_KEY"),
-    GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY"),
-    MINIMAX_BASE_URL=os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
-    # STT / TTS
-    STT_PROVIDER=os.getenv("STT_PROVIDER", "deepgram"),
-    TTS_PROVIDER=os.getenv("TTS_PROVIDER", "gradium"),
-    DEEPGRAM_API_KEY=os.getenv("DEEPGRAM_API_KEY"),
-    CARTESIA_API_KEY=os.getenv("CARTESIA_API_KEY"),
-    GRADIUM_API_KEY=os.getenv("GRADIUM_API_KEY"),
-    # Daily.co transport / recording
-    DAILY_API_KEY=os.getenv("DAILY_API_KEY"),
-    DAILY_RECORDING_BUCKET_NAME=os.getenv("DAILY_RECORDING_BUCKET_NAME"),
-    DAILY_RECORDING_BUCKET_REGION=os.getenv("DAILY_RECORDING_BUCKET_REGION"),
-    DAILY_RECORDING_ASSUME_ROLE_ARN=os.getenv("DAILY_RECORDING_ASSUME_ROLE_ARN"),
-    # AWS (smart turn / context upload)
-    AWS_ACCESS_KEY_ID=os.getenv("AWS_ACCESS_KEY_ID", ""),
-    AWS_SECRET_ACCESS_KEY=os.getenv("AWS_SECRET_ACCESS_KEY", ""),
-    AWS_REGION=os.getenv("AWS_REGION", "us-east-1"),
-    SMART_TURN_S3_BUCKET=os.getenv("SMART_TURN_S3_BUCKET"),
-    CONTEXT_S3_BUCKET=os.getenv("CONTEXT_S3_BUCKET"),
-    # Bot runtime
-    BOT_USE_KRISP=_b("BOT_USE_KRISP", False),
-    BOT_TEST_CHARACTER_ID=os.getenv("BOT_TEST_CHARACTER_ID"),
-    BOT_TEST_CHARACTER_NAME=os.getenv("BOT_TEST_CHARACTER_NAME"),
-    BOT_TEST_NPC_CHARACTER_NAME=os.getenv("BOT_TEST_NPC_CHARACTER_NAME"),
-    BOT_TEST_ACCESS_TOKEN=os.getenv("BOT_TEST_ACCESS_TOKEN"),
-    BOT_IDLE_REPORT_TIME=os.getenv("BOT_IDLE_REPORT_TIME", 9),
-    BOT_IDLE_REPORT_COOLDOWN=os.getenv("BOT_IDLE_REPORT_COOLDOWN", 45),
-    BOT_IDLE_REPORT_ENABLED=_b("BOT_IDLE_REPORT_ENABLED", True),
-    CONTEXT_SUMMARIZATION_MESSAGE_LIMIT=os.getenv("CONTEXT_SUMMARIZATION_MESSAGE_LIMIT", 200),
-    USE_EDGE_TOKEN_FOR_AUTH=_b("USE_EDGE_TOKEN_FOR_AUTH", False),
-    # BYOA
-    BYOA_AGENT_WAKE_TIMEOUT_SECONDS=os.getenv("BYOA_AGENT_WAKE_TIMEOUT_SECONDS", 30.0),
-    BYOA_TOOL_CALL_TIMEOUT_SECONDS=os.getenv("BYOA_TOOL_CALL_TIMEOUT_SECONDS", 30.0),
-    BYOA_AGENT_IDLE_TEARDOWN_SECONDS=os.getenv("BYOA_AGENT_IDLE_TEARDOWN_SECONDS", 300.0),
-    BYOA_TASK_ID=os.getenv("BYOA_TASK_ID"),
-    BYOA_WAKE_REQUEST_ID=os.getenv("BYOA_WAKE_REQUEST_ID"),
-    BYOA_PROMPT=os.getenv("BYOA_PROMPT"),
-    BYOA_PROMPT_FILE=os.getenv("BYOA_PROMPT_FILE"),
-    # Tracing / observability
-    WANDB_API_KEY=os.getenv("WANDB_API_KEY"),
-    WEAVE_PROJECT=os.getenv("WEAVE_PROJECT", "gradientbang"),
-    CEKURA_API_KEY=os.getenv("CEKURA_API_KEY"),
-    CEKURA_AGENT_ID=os.getenv("CEKURA_AGENT_ID"),
-    CEKURA_TRACER_ENABLED=_b("CEKURA_TRACER_ENABLED", False),
-    # Data directories
-    GRADIENTBANG_WORLD_DATA_DIR=os.getenv("GRADIENTBANG_WORLD_DATA_DIR", "tmp/world-data"),
-    GRADIENTBANG_QUEST_DATA_DIR=os.getenv("GRADIENTBANG_QUEST_DATA_DIR", "data/quests"),
-)
+settings = Settings()

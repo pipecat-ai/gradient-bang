@@ -7,21 +7,11 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27.0",
     "python-dotenv>=1.1.1",
-    "google-genai>=0.7.0",
-    "rich>=13.0.0",
     "loguru>=0.7.0",
-    "openai==1.99.5",
     "pillow>=11.3.0",
     "psycopg[binary]>=3.2.1",
+    "pydantic-settings>=2,<3",
     "supabase>=2.24.0",
-]
-
-[dependency-groups]
-dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-timeout>=2.3.1"]
-
-worldgen = ["numpy>=1.26.0", "scipy>=1.11.0", "networkx>=3.0"]
-
-bot = [
     "pipecat-ai[deepgram,daily,cartesia,gradium,webrtc,silero,google,anthropic,runner,pgmq]>=1.2",
     "pipecat-ai-cli",
     "pipecatcloud>=0.6.0",
@@ -29,6 +19,11 @@ bot = [
     "soundfile>=0.12.0",
     "cekura[pipecat]==1.2.0rc3",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-timeout>=2.3.1"]
+
+worldgen = ["numpy>=1.26.0", "scipy>=1.11.0", "networkx>=3.0"]
 
 tracing = ["weave>=0.50"]
 

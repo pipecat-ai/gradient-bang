@@ -1,9 +1,9 @@
 import {
-  ArrowClockwiseIcon,
   EyeClosedIcon,
   EyeIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
+  NavigationArrowIcon,
 } from "@phosphor-icons/react"
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/primitives/ToolTip"
@@ -81,7 +81,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
             <Button
               variant="bland"
               size="icon-sm"
-              aria-label="Reset map"
+              aria-label="Recenter on ship"
               disabled={disabled}
               onClick={() => {
                 recenterMap?.()
@@ -89,10 +89,10 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
               }}
               className="shrink-0 hover:bg-accent-background"
             >
-              <ArrowClockwiseIcon weight="bold" />
+              <NavigationArrowIcon weight="bold" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">Reset map</TooltipContent>
+          <TooltipContent side="left">Recenter on ship</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

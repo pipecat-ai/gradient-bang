@@ -9,9 +9,27 @@ import subprocess
 import httpx
 from loguru import logger
 
-LOCAL_API_PORT = int(os.getenv("LOCAL_API_PORT", "54380"))
+from gradientbang.config import settings
+
+LOCAL_API_PORT = settings.LOCAL_API_PORT
 HEALTH_CHECK_TIMEOUT = 30  # seconds
 HEALTH_CHECK_INTERVAL = 0.5  # seconds
+LOCAL_API_ENV_KEYS = (
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_API_TOKEN",
+    "EDGE_API_TOKEN",
+)
+
+
+def _base_subprocess_env() -> dict[str, str]:
+    env = {**os.environ}
+    for key in LOCAL_API_ENV_KEYS:
+        value = getattr(settings, key)
+        if value:
+            env.setdefault(key, str(value))
+    return env
 
 
 def _resolve_edge_functions_dir() -> str:
@@ -22,7 +40,7 @@ def _resolve_edge_functions_dir() -> str:
     2. /app/edge-functions (Docker container path)
     3. deployment/supabase/functions/ relative to repo root (local dev)
     """
-    explicit = os.getenv("EDGE_FUNCTIONS_DIR")
+    explicit = settings.EDGE_FUNCTIONS_DIR
     if explicit:
         return explicit
 
@@ -72,11 +90,11 @@ class LocalApiServer:
         deno_json = os.path.join(edge_functions_dir, "deno.json")
         logger.info(f"Starting local API server on port {self._port}...")
 
-        env = {**os.environ, "LOCAL_API_PORT": str(self._port)}
+        env = {**_base_subprocess_env(), "LOCAL_API_PORT": str(self._port)}
 
         # Pass LOCAL_API_POSTGRES_URL as POSTGRES_POOLER_URL to the Deno
         # subprocess (that's the env var _shared/pg.ts reads).
-        pg_url = os.getenv("LOCAL_API_POSTGRES_URL")
+        pg_url = settings.LOCAL_API_POSTGRES_URL
         if pg_url:
             env["POSTGRES_POOLER_URL"] = pg_url
 

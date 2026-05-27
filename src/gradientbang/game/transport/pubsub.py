@@ -8,7 +8,6 @@ removed by best-effort unregister plus database-owned expiry cleanup.
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Mapping, Optional
@@ -24,33 +23,31 @@ from psycopg.errors import (
 )
 from psycopg.rows import tuple_row
 
+from gradientbang.config import Settings, settings
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 if TYPE_CHECKING:
     from gradientbang.game.client import AsyncGameClient
 
 
-HEARTBEAT_SECONDS = max(1.0, float(os.getenv("EVENT_SESSION_HEARTBEAT_SECONDS", "15")))
-TTL_SECONDS = max(5, int(os.getenv("EVENT_SESSION_TTL_SECONDS", "60")))
-HARD_TTL_SECONDS = max(TTL_SECONDS, int(os.getenv("EVENT_SESSION_HARD_TTL_SECONDS", "21600")))
-VISIBILITY_TIMEOUT_SECONDS = max(
-    1, int(os.getenv("EVENT_SESSION_VISIBILITY_TIMEOUT_SECONDS", "10"))
-)
-EMPTY_POLL_INTERVAL_SECONDS = max(
-    0.05, float(os.getenv("EVENT_SESSION_EMPTY_POLL_INTERVAL_SECONDS", "1.0"))
-)
-DEFAULT_QTY = max(1, int(os.getenv("EVENT_SESSION_BATCH_QTY", "100")))
+HEARTBEAT_SECONDS = max(1.0, settings.EVENT_SESSION_HEARTBEAT_SECONDS)
+TTL_SECONDS = max(5, settings.EVENT_SESSION_TTL_SECONDS)
+HARD_TTL_SECONDS = max(TTL_SECONDS, settings.EVENT_SESSION_HARD_TTL_SECONDS)
+VISIBILITY_TIMEOUT_SECONDS = max(1, settings.EVENT_SESSION_VISIBILITY_TIMEOUT_SECONDS)
+EMPTY_POLL_INTERVAL_SECONDS = max(0.05, settings.EVENT_SESSION_EMPTY_POLL_INTERVAL_SECONDS)
+DEFAULT_QTY = max(1, settings.EVENT_SESSION_BATCH_QTY)
 BOOTSTRAP_DRAIN_TIMEOUT_SECONDS = max(
-    0.0, float(os.getenv("EVENT_SESSION_BOOTSTRAP_DRAIN_TIMEOUT_SECONDS", "2.0"))
+    0.0, settings.EVENT_SESSION_BOOTSTRAP_DRAIN_TIMEOUT_SECONDS
 )
-RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
-NO_EVENTS_WARNING_SECONDS = float(os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", "30.0"))
-MAX_DISPATCH_ATTEMPTS = int(os.getenv("PGMQ_MAX_DISPATCH_ATTEMPTS", "3"))
+RECONNECT_BACKOFF_MAX = settings.PGMQ_RECONNECT_BACKOFF_MAX
+NO_EVENTS_WARNING_SECONDS = settings.PGMQ_NO_EVENTS_WARNING_SECONDS
+MAX_DISPATCH_ATTEMPTS = settings.PGMQ_MAX_DISPATCH_ATTEMPTS
 
 
 def _resolve_pgmq_url() -> str:
     """Return the admin Postgres URL for pgmq, falling back to LOCAL_API_POSTGRES_URL."""
-    url = os.getenv("PGMQ_URL") or os.getenv("LOCAL_API_POSTGRES_URL")
+    current = Settings()
+    url = current.PGMQ_URL or current.LOCAL_API_POSTGRES_URL
     if not url:
         raise RuntimeError(
             "PGMQ_URL (or LOCAL_API_POSTGRES_URL) is required when "
@@ -61,7 +58,8 @@ def _resolve_pgmq_url() -> str:
 
 
 def _edge_token() -> str:
-    token = os.getenv("EDGE_API_TOKEN") or os.getenv("SUPABASE_API_TOKEN")
+    current = Settings()
+    token = current.EDGE_API_TOKEN or current.SUPABASE_API_TOKEN
     if not token:
         raise RuntimeError(
             "EDGE_API_TOKEN (or SUPABASE_API_TOKEN) is required when "

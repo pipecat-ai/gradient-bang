@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import uuid
 
+from gradientbang.config import Settings
 from gradientbang.runtime.bus_transport.base import AgentBus
 from gradientbang.runtime.bus_transport.local import AsyncQueueBus
 
@@ -41,7 +42,8 @@ def _generate_session_channel() -> str:
 
 async def make_subagent_bus() -> AgentBus:
     """Construct the subagent bus chosen by ``SUBAGENT_BUS_TRANSPORT``."""
-    transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
+    current = Settings()
+    transport = current.SUBAGENT_BUS_TRANSPORT.strip().lower()
     if transport not in _VALID_TRANSPORTS:
         raise ValueError(
             f"unknown SUBAGENT_BUS_TRANSPORT={transport!r}; "
@@ -52,7 +54,7 @@ async def make_subagent_bus() -> AgentBus:
         # pgmq/asyncpg.
         from gradientbang.runtime.bus_transport.pgmq import build_pgmq_bus
 
-        dsn = (os.getenv("SUBAGENT_BUS_DATABASE_URL") or "").strip()
+        dsn = (current.SUBAGENT_BUS_DATABASE_URL or "").strip()
         if not dsn:
             raise RuntimeError(
                 "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_DATABASE_URL"

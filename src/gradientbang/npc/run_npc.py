@@ -18,12 +18,11 @@ from pathlib import Path
 
 from loguru import logger
 
+from gradientbang.config import settings
 from gradientbang.game.base_client import RPCError
 
-BOT_ENV_FILE = ".env.bot"
-
 logger.enable("pipecat")
-_log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
+_log_level = settings.LOGURU_LEVEL.upper()
 logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -159,7 +158,7 @@ Environment Variables:
 
     parser.add_argument(
         "--server",
-        default=os.getenv("SUPABASE_URL"),
+        default=settings.SUPABASE_URL,
         help="Supabase base URL (default: SUPABASE_URL)",
     )
 
@@ -187,15 +186,6 @@ async def run_task(args: argparse.Namespace) -> int:
     if not args.server:
         logger.error("SUPABASE_URL is required (or pass --server).")
         return 1
-
-    # Load .env.bot for LLM config (TASK_LLM_*, API keys).
-    bot_env = PROJECT_ROOT / BOT_ENV_FILE
-    if bot_env.exists():
-        from dotenv import load_dotenv
-
-        load_dotenv(bot_env, override=False)
-    else:
-        logger.warning("No {} found — LLM config may be missing", BOT_ENV_FILE)
 
     from gradientbang.game.client import AsyncGameClient
 

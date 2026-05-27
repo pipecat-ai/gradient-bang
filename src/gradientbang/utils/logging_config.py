@@ -4,10 +4,11 @@ Provides colored, per-agent log formatting. Call ``configure_logging()`` once
 after pipecat's runner has installed its own loguru handlers.
 """
 
-import os
 import sys
 
 from loguru import logger
+
+from gradientbang.config import settings
 
 _AGENT_COLORS: dict[str, tuple[str, str]] = {
     # module leaf name → (color, short label)
@@ -54,6 +55,6 @@ def configure_logging(instance_id: str | None = None):
     logger.remove()
     logger.add(
         sys.stderr,
-        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        level=(settings.LOG_LEVEL or settings.LOGURU_LEVEL).upper(),
         format=lambda record: _log_format(record, instance_id=instance_id),
     )

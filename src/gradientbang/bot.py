@@ -125,7 +125,7 @@ def _log_boot_step(message: str) -> None:
     logger.opt(colors=True).info(f"<blue>▶▶▶ {message}</blue>")
 
 
-# ─── Bot code ────────────────────────────────────────────────────────────────
+# ─── Bot code ──────────────────────────────────────────────────────────
 
 
 async def run_bot(transport, runner_args: RunnerArguments) -> None:

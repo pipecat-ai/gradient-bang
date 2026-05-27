@@ -15,11 +15,12 @@ To enable:
 3. Traces appear at https://wandb.ai/<username>/<project>/weave
 """
 
-import os
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Generator, Optional
 
 from loguru import logger
+
+from gradientbang.config import settings
 
 # Check if Weave is available
 try:
@@ -57,13 +58,13 @@ def init_weave(project_name: str | None = None) -> bool:
     if not WEAVE_AVAILABLE:
         logger.info("Weave tracing disabled: weave package not installed")
         return False
-    if not os.getenv("WANDB_API_KEY"):
+    if not settings.WANDB_API_KEY:
         logger.info("Weave tracing disabled: WANDB_API_KEY not set")
         return False
     if _weave_initialized:
         return True
     try:
-        resolved = project_name or os.getenv("WEAVE_PROJECT", "gradientbang")
+        resolved = project_name or settings.WEAVE_PROJECT
         weave.init(
             resolved,
             settings={"implicitly_patch_integrations": False},

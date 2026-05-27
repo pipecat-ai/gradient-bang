@@ -61,6 +61,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.workers.llm import LLMWorker
 
+from gradientbang.config import settings
 from gradientbang.runtime.byoa import ByoaAgentConfig
 from gradientbang.runtime.bus import (
     BUS_PROTOCOL_VERSION,
@@ -95,15 +96,7 @@ from gradientbang.utils.weave_tracing import traced
 # ── Constants ─────────────────────────────────────────────────────────────
 
 
-def _float_env(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        logger.warning("Invalid {} value; using default {}", name, default)
-        return default
-
-
-EVENT_BATCH_INFERENCE_DELAY = max(0.0, _float_env("TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS", 1.0))
+EVENT_BATCH_INFERENCE_DELAY = max(0.0, settings.TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS)
 ASYNC_COMPLETION_TIMEOUT = 5.0
 MAX_NO_TOOL_NUDGES = 3
 MAX_CONSECUTIVE_ERRORS = 3

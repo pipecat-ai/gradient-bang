@@ -1,7 +1,6 @@
 """LocalSmartTurnAnalyzerV3 subclass that uploads audio snippets to S3 as FLAC."""
 
 import io
-import os
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -10,6 +9,8 @@ from typing import Any, Dict, Optional
 import numpy as np
 from loguru import logger
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+
+from gradientbang.config import settings
 
 
 class S3SmartTurnAnalyzerV3(LocalSmartTurnAnalyzerV3):
@@ -27,10 +28,10 @@ class S3SmartTurnAnalyzerV3(LocalSmartTurnAnalyzerV3):
     ):
         super().__init__(**kwargs)
         self._player_id = player_id
-        self._s3_bucket = s3_bucket or os.getenv("SMART_TURN_S3_BUCKET", "")
-        self._aws_access_key_id = aws_access_key_id or os.getenv("AWS_ACCESS_KEY_ID")
-        self._aws_secret_access_key = aws_secret_access_key or os.getenv("AWS_SECRET_ACCESS_KEY")
-        self._aws_region = aws_region or os.getenv("AWS_REGION", "us-east-1")
+        self._s3_bucket = s3_bucket or settings.SMART_TURN_S3_BUCKET or ""
+        self._aws_access_key_id = aws_access_key_id or settings.AWS_ACCESS_KEY_ID
+        self._aws_secret_access_key = aws_secret_access_key or settings.AWS_SECRET_ACCESS_KEY
+        self._aws_region = aws_region or settings.AWS_REGION
 
         if not self._s3_bucket:
             logger.warning("SMART_TURN_S3_BUCKET not set – S3 uploads disabled")

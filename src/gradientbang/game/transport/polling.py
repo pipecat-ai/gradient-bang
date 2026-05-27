@@ -9,13 +9,13 @@ Tuning env vars:
 from __future__ import annotations
 
 import asyncio
-import os
 from collections import deque
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Deque, Dict, Mapping, Optional
 
 from loguru import logger
 
+from gradientbang.config import settings
 from gradientbang.game.base_client import RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
@@ -23,17 +23,13 @@ if TYPE_CHECKING:
     from gradientbang.game.client import AsyncGameClient
 
 
-POLL_INTERVAL_SECONDS = max(0.25, float(os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
-_POLL_LIMIT_ENV = os.getenv("SUPABASE_POLL_LIMIT")
-if _POLL_LIMIT_ENV is not None:
-    try:
-        POLL_LIMIT_DEFAULT = max(1, min(250, int(_POLL_LIMIT_ENV)))
-    except ValueError:
-        POLL_LIMIT_DEFAULT = 100
+POLL_INTERVAL_SECONDS = max(0.25, settings.SUPABASE_POLL_INTERVAL_SECONDS)
+if settings.SUPABASE_POLL_LIMIT is not None:
+    POLL_LIMIT_DEFAULT = max(1, min(250, settings.SUPABASE_POLL_LIMIT))
 else:
     # Cloud: lower default to reduce payload size; local stays at 100
-    POLL_LIMIT_DEFAULT = 50 if "supabase.co" in (os.getenv("SUPABASE_URL") or "") else 100
-POLL_BACKOFF_MAX = max(1.0, float(os.getenv("SUPABASE_POLL_BACKOFF_MAX", "5.0")))
+    POLL_LIMIT_DEFAULT = 50 if "supabase.co" in (settings.SUPABASE_URL or "") else 100
+POLL_BACKOFF_MAX = max(1.0, settings.SUPABASE_POLL_BACKOFF_MAX)
 
 
 class PollingEventAdapter:

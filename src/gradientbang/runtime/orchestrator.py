@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
-import os
 import time
 import uuid
 from collections import deque
@@ -150,7 +149,7 @@ class Orchestrator:
         self._worker_event_bridge_installed = False
         self._byoa_config = ByoaAgentConfig.from_env()
         self._byoa: ByoaCoordinator | None = None
-        self._task_agent_timeout: float | None = self._task_agent_timeout_from_env()
+        self._task_agent_timeout: float | None = self._task_agent_timeout_from_settings()
         self._pending_tasks: Dict[str, Tuple[str, dict]] = {}
         self._voice_agent_request_ids: Dict[str, float] = {}
         self._voice_agent_request_queue: deque[tuple[str, float]] = deque()
@@ -176,8 +175,8 @@ class Orchestrator:
         self._flush_done = asyncio.Event()
 
     @staticmethod
-    def _task_agent_timeout_from_env() -> float | None:
-        timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
+    def _task_agent_timeout_from_settings() -> float | None:
+        timeout = float(settings.TASK_AGENT_TIMEOUT)
         return timeout if timeout > 0 else None
 
     @classmethod
