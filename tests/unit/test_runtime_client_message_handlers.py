@@ -1,14 +1,18 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from pipecat.frames.frames import (
     InterruptionFrame,
+    LLMMessagesAppendFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
 
+from gradientbang.bot import AppResources
+from gradientbang.runtime import client_message_handlers as client_message_handlers_module
 from gradientbang.runtime.client_message_handlers import ClientMessageHandler
 from gradientbang.runtime.frames import UserTextInputFrame
 from gradientbang.runtime.subagents.task_agent import TaskAgent
@@ -22,9 +26,14 @@ class _Message:
 
 
 class _PipelineWorker:
-    def __init__(self, children=None) -> None:
+    def __init__(
+        self,
+        children=None,
+        app_resources=None,
+    ) -> None:
         self.queued_frames = []
         self.children = children or []
+        self.app_resources = app_resources
 
     async def queue_frame(self, frame):
         self.queued_frames.append(frame)
@@ -33,13 +42,41 @@ class _PipelineWorker:
         self.queued_frames.extend(frames)
 
 
+def test_app_resources_event_defaults_to_muted() -> None:
+    resources = AppResources()
+
+    assert not resources.user_unmuted_event.is_set()
+
+
+def test_app_resources_event_set_state_represents_unmuted() -> None:
+    resources = AppResources()
+
+    resources.user_unmuted_event.set()
+    assert resources.user_unmuted_event.is_set()
+
+    resources.user_unmuted_event.clear()
+    assert not resources.user_unmuted_event.is_set()
+
+
 @pytest.mark.asyncio
-async def test_user_text_input_queues_bypass_before_transcription_frames() -> None:
-    pipeline_worker = _PipelineWorker()
+async def test_user_text_input_queues_bypass_before_transcription_frames(monkeypatch) -> None:
+    resources = AppResources()
+    resources.user_unmuted_event.set()
+    pipeline_worker = _PipelineWorker(app_resources=resources)
+    rtvi = MagicMock(
+        push_transport_message=AsyncMock(),
+        interrupt_bot=AsyncMock(),
+        push_frame=AsyncMock(),
+    )
+
+    async def fail_wait_for(awaitable, timeout):
+        raise AssertionError("user text should not wait when already unmuted")
+
+    monkeypatch.setattr(client_message_handlers_module.asyncio, "wait_for", fail_wait_for)
     handler = ClientMessageHandler(
         game_client=None,
         character_id="character-id",
-        rtvi=None,
+        rtvi=rtvi,
         transport=None,
         pipeline_worker=pipeline_worker,
     )
@@ -55,6 +92,46 @@ async def test_user_text_input_queues_bypass_before_transcription_frames() -> No
     ]
     assert pipeline_worker.queued_frames[0].text == "plot a course to Rigel"
     assert pipeline_worker.queued_frames[3].text == "plot a course to Rigel"
+    assert not any(
+        isinstance(frame, LLMMessagesAppendFrame) for frame in pipeline_worker.queued_frames
+    )
+    rtvi.push_transport_message.assert_not_awaited()
+    rtvi.interrupt_bot.assert_not_awaited()
+    rtvi.push_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_user_text_input_waits_for_muted_input_to_unmute(monkeypatch) -> None:
+    resources = AppResources()
+    pipeline_worker = _PipelineWorker(app_resources=resources)
+    real_wait_for = asyncio.wait_for
+    wait_calls = []
+
+    async def capture_wait_for(awaitable, timeout):
+        wait_calls.append(timeout)
+        resources.user_unmuted_event.set()
+        return await real_wait_for(awaitable, timeout)
+
+    monkeypatch.setattr(client_message_handlers_module.asyncio, "wait_for", capture_wait_for)
+    handler = ClientMessageHandler(
+        game_client=None,
+        character_id="character-id",
+        rtvi=None,
+        transport=None,
+        pipeline_worker=pipeline_worker,
+    )
+
+    await handler.handle(_Message())
+
+    assert wait_calls == [0.5]
+    assert [type(frame) for frame in pipeline_worker.queued_frames] == [
+        UserTextInputFrame,
+        InterruptionFrame,
+        UserStartedSpeakingFrame,
+        TranscriptionFrame,
+        UserStoppedSpeakingFrame,
+    ]
+    assert resources.user_unmuted_event.is_set()
 
 
 def test_deferred_client_message_handlers_are_not_registered() -> None:

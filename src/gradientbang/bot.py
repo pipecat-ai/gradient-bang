@@ -8,6 +8,7 @@ by pipecat.ai and daily.co
 import asyncio
 import os
 import uuid
+from dataclasses import dataclass, field
 
 from loguru import logger
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -97,6 +98,18 @@ BOT_INSTANCE_ID: str | None = None
 # Tracing must initialize before @traced wrappers are created.
 init_weave()
 init_cekura()
+
+
+@dataclass
+class AppResources:
+    """Mutable per-session data attached to the Pipecat worker.
+
+    Pipecat exposes this instance as ``worker.app_resources``. The voice
+    pipeline uses it to share small runtime signals, such as user mute state,
+    between processors and client-message handlers.
+    """
+
+    user_unmuted_event: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class BotRuntimeConfig(BaseModel):
@@ -234,6 +247,9 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     )
 
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
+    # Pipecat exposes this session-local object as worker.app_resources.
+    # We use it to share the user mute event between aggregator handlers and text input.
+    app_resources = AppResources()
 
     context = LLMContext(
         messages=[system_message],
@@ -258,6 +274,16 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
             auto_context_summarization_config=auto_summarization_config,
         ),
     )
+
+    @user_aggregator.event_handler("on_user_mute_started")
+    async def on_user_mute_started(aggregator):
+        logger.info("User input muted")
+        app_resources.user_unmuted_event.clear()
+
+    @user_aggregator.event_handler("on_user_mute_stopped")
+    async def on_user_mute_stopped(aggregator):
+        logger.info("User input unmuted")
+        app_resources.user_unmuted_event.set()
 
     # ── Voice context upload ──────────────────────────────────────────
     # Snapshot the LLM context on compaction, periodic ticks, and shutdown.
@@ -363,6 +389,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     voice_worker = PipelineWorker(
         main_pipeline,
         name=PLAYER_AGENT_NAME,
+        app_resources=app_resources,
         params=PipelineParams(
             enable_metrics=True,
             enable_usage_metrics=True,

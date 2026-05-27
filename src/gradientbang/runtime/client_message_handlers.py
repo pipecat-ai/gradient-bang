@@ -20,9 +20,9 @@ from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
+from gradientbang.game.base_client import RPCError
 from gradientbang.runtime.frames import UserTextInputFrame
 from gradientbang.runtime.voices import get_voices_for_provider
-from gradientbang.game.base_client import RPCError
 from gradientbang.utils.tts_factory import get_tts_provider
 
 
@@ -508,7 +508,14 @@ class ClientMessageHandler:
     async def _handle_user_text_input(self, msg_type, msg_data):
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
         await self._pipeline_worker.queue_frame(UserTextInputFrame(text=text))
-        await asyncio.sleep(0)
+
+        resources = getattr(self._pipeline_worker, "app_resources", None)
+        user_unmuted_event = getattr(resources, "user_unmuted_event", None)
+        if user_unmuted_event is not None and not user_unmuted_event.is_set():
+            try:
+                await asyncio.wait_for(user_unmuted_event.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                logger.warning("Timed out waiting for user unmute after text input")
 
         frames = [InterruptionFrame()]
         if text.strip():
