@@ -540,7 +540,6 @@ class TestCorpShipCombat:
     async def test_corp_combat_does_not_block_subsequent_player_events(self):
         """After corp combat events, player events still flow normally to LLM."""
         h = _make_harness()
-        h.relay._onboarding_complete = True
 
         # Corp ship combat event (round-1 observed-stake notification)
         await h.feed_event(
@@ -1346,9 +1345,6 @@ class TestDeferredFlushCoalescing:
         from pipecat.frames.frames import LLMRunFrame
 
         h = _make_harness()
-
-        # Skip onboarding so it doesn't interfere
-        h.relay._onboarding_complete = True
 
         # Track a request_id so EventRelay treats these as voice-agent events
         h.orchestrator.track_request_id("travel-req")

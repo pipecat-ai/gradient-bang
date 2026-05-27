@@ -19,6 +19,9 @@ _tracer: Optional[PipecatTracer] = None
 
 def init_cekura() -> Optional[PipecatTracer]:
     global _tracer
+    if not settings.CEKURA_TRACER_ENABLED:
+        return None
+
     api_key = settings.CEKURA_API_KEY
     agent_id = settings.CEKURA_AGENT_ID
     if not api_key or not agent_id:
@@ -27,7 +30,7 @@ def init_cekura() -> Optional[PipecatTracer]:
     _tracer = PipecatTracer(
         api_key=api_key,
         agent_id=int(agent_id),
-        enabled=settings.CEKURA_TRACER_ENABLED,
+        enabled=True,
     )
     logger.info("Cekura tracing initialized")
     return _tracer

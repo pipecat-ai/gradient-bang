@@ -26,7 +26,7 @@ load_dotenv(ENV_FILE, override=False)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", env_ignore_empty=True)
 
     # ===== Logging =====
     LOGURU_LEVEL: str = Field(
@@ -464,8 +464,8 @@ class Settings(BaseSettings):
         description="Cekura agent identifier this bot instance reports as.",
     )
     CEKURA_TRACER_ENABLED: bool = Field(
-        default=True,
-        description="Master toggle for the Cekura tracer.",
+        default=False,
+        description="Master toggle for the Cekura tracer. Must be explicitly true to enable.",
     )
     TOKEN_USAGE_LOG: str | None = Field(
         default=None,

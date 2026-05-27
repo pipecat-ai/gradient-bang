@@ -3,8 +3,8 @@
 Subscribes to game_client events and routes them to RTVI (client push)
 and/or LLM context.  Each event type has a declarative config entry
 (EventConfig) that controls routing.  Cross-cutting concerns (combat
-priority, onboarding, deferred batching) are focused helper methods
-called from explicit phases in the router.
+priority, deferred batching) are focused helper methods called from
+explicit phases in the router.
 """
 
 from __future__ import annotations
@@ -982,9 +982,9 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # ports.list is emitted whenever anyone queries known ports. The voice
     # runtime calls list_known_ports as a direct-response tool (data returns inline
     # in the tool result), so appending the event would duplicate the data and
-    # trigger a redundant second inference pass. Suppress append; onboarding's
-    # passive observers and the TaskAgent's bus consumer both run before the
-    # append check and are unaffected.
+    # trigger a redundant second inference pass. Suppress append; RTVI push
+    # and the TaskAgent's bus consumer both run before the append check and
+    # are unaffected.
     "ports.list": EventConfig(append=AppendRule.NEVER),
     "course.plot": EventConfig(inference=InferenceRule.VOICE_AGENT),
     "error": EventConfig(inference=InferenceRule.VOICE_AGENT),
@@ -1125,10 +1125,6 @@ class TaskStateProvider(Protocol):
     # LLM frame management (inherited from LLMAgent)
     @property
     def tool_call_active(self) -> bool: ...
-    # Player worker activation state. EventRelay gates onboarding injection on
-    # this so welcome events do not fire during scripted tutorial takeover.
-    @property
-    def active(self) -> bool: ...
     async def queue_frame(self, frame) -> None: ...
 
 

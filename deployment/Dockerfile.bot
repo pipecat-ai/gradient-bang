@@ -11,10 +11,13 @@ ENV PCC_LOG_FEATURES_SUMMARY=true
 
 ENV PYTHONPATH=/app
 
-# Install Deno for running edge functions locally
+# Install Deno for running edge functions locally.
+# Pinned: Deno 2.8.0 made Deno.serve a lazy getter, breaking the
+# monkey-patch in edge-functions/server.ts. Stay on the last 2.7.x.
 ENV DENO_INSTALL=/root/.deno
+ENV DENO_VERSION=v2.7.14
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip git \
-    && curl -fsSL https://deno.land/install.sh | sh \
+    && curl -fsSL https://deno.land/install.sh | sh -s "${DENO_VERSION}" \
     && apt-get purge -y curl unzip && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"

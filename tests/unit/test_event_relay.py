@@ -1,4 +1,4 @@
-"""Tests for EventRelay — event routing, combat priority, onboarding, voice summaries."""
+"""Tests for EventRelay — event routing, combat priority, and voice summaries."""
 
 from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, MagicMock
@@ -37,10 +37,6 @@ class StubTaskState:
         self.tool_call_inflight: bool = False
         self.deferred_events: list[tuple[str, bool]] = []
         self.broadcast_events: list[dict] = []
-        # EventRelay gates onboarding injection on this. Default True so
-        # tests don't have to opt in explicitly; individual tests can flip
-        # it False to exercise the inactive path.
-        self.active: bool = True
 
     async def broadcast_game_event(
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
@@ -1542,7 +1538,6 @@ class TestInferenceTriggeringLogic:
 
     async def test_status_snapshot_needs_request_id(self):
         relay, task_state, _, mock_rtvi = _make_relay()
-        relay._onboarding_pending = False  # skip onboarding
         event = _make_event(
             "status.snapshot",
             {
@@ -1935,7 +1930,6 @@ class TestInferenceRules:
         """ports.list is AppendRule.NEVER — orchestrator gets data via the direct-response
         tool result, so the follow-up event must not duplicate it in LLM context."""
         relay, task_state, _, _ = _make_relay()
-        relay._onboarding_pending = False
         task_state.recent_request_ids.add("req-1")
         event = _make_event(
             "ports.list",
@@ -1948,7 +1942,6 @@ class TestInferenceRules:
     async def test_course_plot_with_matching_request(self):
         """course.plot stays inference-triggering for matching voice requests."""
         relay, task_state, _, _ = _make_relay()
-        relay._onboarding_pending = False
         task_state.recent_request_ids.add("req-course")
         event = _make_event(
             "course.plot",
@@ -1966,7 +1959,6 @@ class TestInferenceRules:
     async def test_ports_list_never_appended_without_matching_request(self):
         """ports.list stays out of voice LLM context regardless of request_id match."""
         relay, task_state, _, _ = _make_relay()
-        relay._onboarding_pending = False
         event = _make_event(
             "ports.list",
             {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
@@ -1981,7 +1973,6 @@ class TestInferenceRules:
         course.plot still exercises this rule; ports.list switched to NEVER.
         """
         relay, task_state, _, _ = _make_relay()
-        relay._onboarding_pending = False
         event = _make_event(
             "course.plot",
             {
@@ -2038,7 +2029,6 @@ class TestEventFlowIntegrity:
         """Every event type in EVENT_CONFIGS gets an RTVI push."""
         for event_name in EVENT_CONFIGS:
             relay, task_state, _, mock_rtvi = _make_relay()
-            relay._onboarding_pending = False
             event = _make_event(
                 event_name,
                 {"__event_context": {"scope": "direct", "reason": "direct"}},
@@ -2052,7 +2042,6 @@ class TestEventFlowIntegrity:
         """Every event routed through _relay_event is broadcast to bus."""
         for event_name in EVENT_CONFIGS:
             relay, task_state, _, mock_rtvi = _make_relay()
-            relay._onboarding_pending = False
             event = _make_event(
                 event_name,
                 {"__event_context": {"scope": "direct", "reason": "direct"}},

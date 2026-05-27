@@ -151,10 +151,9 @@ ASYNC_TOOL_COMPLETIONS = {
 # in the tool result).
 #
 # list_known_ports is synchronous on the server side: the edge function returns
-# the full port payload inline. The ports.list event still fires (voice-side
-# onboarding observers consume it, and it flows to RTVI for the client), but
-# it must be skipped here because the data already reached the LLM via the
-# tool result.
+# the full port payload inline. The ports.list event still fires and flows to
+# RTVI for the client, but it must be skipped here because the data already
+# reached the LLM via the tool result.
 SYNC_TOOL_EVENTS = {
     "local_map_region": "map.region",
     "plot_course": "course.plot",
