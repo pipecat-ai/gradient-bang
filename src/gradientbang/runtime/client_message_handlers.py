@@ -6,16 +6,13 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 from pipecat.frames.frames import (
-    InterruptionFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
     STTUpdateSettingsFrame,
-    TranscriptionFrame,
     TTSUpdateSettingsFrame,
-    UserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+from pipecat.processors.frameworks.rtvi import models as RTVI
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
@@ -506,6 +503,21 @@ class ClientMessageHandler:
             await self._rtvi.send_server_message({"frame_type": "error", "error": str(exc)})
 
     async def _handle_user_text_input(self, msg_type, msg_data):
+        """Handle typed user text without pretending it came from STT audio.
+
+        ``UserTextInputFrame`` is an internal control frame for the user-mute
+        strategy: during the first bot turn it marks first speech handled so
+        text can bypass the initial mute. After that, the typed text follows
+        Pipecat's send-text style path by appending directly to the LLM context.
+
+        We still emit the RTVI user speaking/transcription lifecycle manually
+        so the web client's conversation store renders typed text exactly like
+        a normal user turn. We intentionally avoid pushing synthetic
+        ``UserStartedSpeakingFrame`` / ``TranscriptionFrame`` /
+        ``UserStoppedSpeakingFrame`` through the pipeline; those fake speech
+        frames can trip Pipecat interruption/task-reset edge cases, while
+        ``LLMMessagesAppendFrame`` is the native typed-text mechanism.
+        """
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
         await self._pipeline_worker.queue_frame(UserTextInputFrame(text=text))
 
@@ -517,17 +529,27 @@ class ClientMessageHandler:
             except asyncio.TimeoutError:
                 logger.warning("Timed out waiting for user unmute after text input")
 
-        frames = [InterruptionFrame()]
         if text.strip():
             logger.info(f"[USER-TEXT-INPUT] Received text: {text}")
-            frames.extend(
-                [
-                    UserStartedSpeakingFrame(),
-                    TranscriptionFrame(text=text, user_id="player", timestamp=time_now_iso8601()),
-                    UserStoppedSpeakingFrame(),
-                ]
+            await self._rtvi.push_transport_message(RTVI.UserStartedSpeakingMessage())
+            await self._rtvi.push_transport_message(
+                RTVI.UserTranscriptionMessage(
+                    data=RTVI.UserTranscriptionMessageData(
+                        text=text,
+                        user_id="player",
+                        timestamp=time_now_iso8601(),
+                        final=True,
+                    )
+                )
             )
-        await self._pipeline_worker.queue_frames(frames)
+            await self._rtvi.push_transport_message(RTVI.UserStoppedSpeakingMessage())
+            await self._rtvi.interrupt_bot()
+            await self._pipeline_worker.queue_frame(
+                LLMMessagesAppendFrame(
+                    messages=[{"role": "user", "content": text}],
+                    run_llm=True,
+                )
+            )
 
     async def _handle_assign_quest(self, msg_type, msg_data):
         quest_code = msg_data.get("quest_code", "") if isinstance(msg_data, dict) else ""

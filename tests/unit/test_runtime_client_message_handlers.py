@@ -4,12 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from pipecat.frames.frames import (
-    InterruptionFrame,
     LLMMessagesAppendFrame,
-    TranscriptionFrame,
-    UserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame,
 )
+from pipecat.processors.frameworks.rtvi import models as RTVI
 
 from gradientbang.bot import AppResources
 from gradientbang.runtime import client_message_handlers as client_message_handlers_module
@@ -59,7 +56,7 @@ def test_app_resources_event_set_state_represents_unmuted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_user_text_input_queues_bypass_before_transcription_frames(monkeypatch) -> None:
+async def test_user_text_input_pushes_transcript_and_llm_append(monkeypatch) -> None:
     resources = AppResources()
     resources.user_unmuted_event.set()
     pipeline_worker = _PipelineWorker(app_resources=resources)
@@ -85,18 +82,23 @@ async def test_user_text_input_queues_bypass_before_transcription_frames(monkeyp
 
     assert [type(frame) for frame in pipeline_worker.queued_frames] == [
         UserTextInputFrame,
-        InterruptionFrame,
-        UserStartedSpeakingFrame,
-        TranscriptionFrame,
-        UserStoppedSpeakingFrame,
+        LLMMessagesAppendFrame,
     ]
     assert pipeline_worker.queued_frames[0].text == "plot a course to Rigel"
-    assert pipeline_worker.queued_frames[3].text == "plot a course to Rigel"
-    assert not any(
-        isinstance(frame, LLMMessagesAppendFrame) for frame in pipeline_worker.queued_frames
-    )
-    rtvi.push_transport_message.assert_not_awaited()
-    rtvi.interrupt_bot.assert_not_awaited()
+    append_frame = pipeline_worker.queued_frames[1]
+    assert append_frame.messages == [{"role": "user", "content": "plot a course to Rigel"}]
+    assert append_frame.run_llm is True
+    assert rtvi.push_transport_message.await_count == 3
+    user_started_message = rtvi.push_transport_message.await_args_list[0].args[0]
+    transcript_message = rtvi.push_transport_message.await_args_list[1].args[0]
+    user_stopped_message = rtvi.push_transport_message.await_args_list[2].args[0]
+    assert isinstance(user_started_message, RTVI.UserStartedSpeakingMessage)
+    assert isinstance(transcript_message, RTVI.UserTranscriptionMessage)
+    assert transcript_message.data.text == "plot a course to Rigel"
+    assert transcript_message.data.user_id == "player"
+    assert transcript_message.data.final is True
+    assert isinstance(user_stopped_message, RTVI.UserStoppedSpeakingMessage)
+    rtvi.interrupt_bot.assert_awaited_once()
     rtvi.push_frame.assert_not_awaited()
 
 
@@ -116,7 +118,11 @@ async def test_user_text_input_waits_for_muted_input_to_unmute(monkeypatch) -> N
     handler = ClientMessageHandler(
         game_client=None,
         character_id="character-id",
-        rtvi=None,
+        rtvi=MagicMock(
+            push_transport_message=AsyncMock(),
+            interrupt_bot=AsyncMock(),
+            push_frame=AsyncMock(),
+        ),
         transport=None,
         pipeline_worker=pipeline_worker,
     )
@@ -126,10 +132,7 @@ async def test_user_text_input_waits_for_muted_input_to_unmute(monkeypatch) -> N
     assert wait_calls == [0.5]
     assert [type(frame) for frame in pipeline_worker.queued_frames] == [
         UserTextInputFrame,
-        InterruptionFrame,
-        UserStartedSpeakingFrame,
-        TranscriptionFrame,
-        UserStoppedSpeakingFrame,
+        LLMMessagesAppendFrame,
     ]
     assert resources.user_unmuted_event.is_set()
 
