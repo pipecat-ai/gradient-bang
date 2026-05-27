@@ -116,9 +116,8 @@ class AsyncGameClient(BaseAsyncGameClient):
         )
 
         self._supabase_url = supabase_url
-        self._functions_url = (
-            functions_url.rstrip("/") if functions_url else f"{self._supabase_url}/functions/v1"
-        )
+        edge_base = functions_url if functions_url is not None else settings.EDGE_FUNCTIONS_URL
+        self._functions_url = edge_base.rstrip("/") if edge_base else f"{self._supabase_url}/functions/v1"
         """
         self._service_role_key = settings.SUPABASE_SERVICE_ROLE_KEY
         if not self._service_role_key:
