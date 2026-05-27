@@ -27,6 +27,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from pipecat.registry import WorkerRegistry
+from pipecat.registry.types import WorkerReadyData
+
 from gradientbang.runtime.bus import (
     BusAgentHelloResponse,
     BusByoaPresenceMessage,
@@ -63,6 +66,41 @@ class TestByoaAgentName:
     def test_documented_format(self):
         agent = _make_orchestrator()
         assert agent._byoa.agent_name_for("ship-uuid-123") == "byoa_ship-uuid-123"
+
+
+@pytest.mark.unit
+class TestByoaRegistryInvalidation:
+    def test_removes_stale_local_and_remote_worker_entries(self):
+        agent = _make_orchestrator()
+        registry = WorkerRegistry(runner_name=agent.name)
+        agent.voice_worker.registry = registry
+
+        byoa_name = agent._byoa.agent_name_for("ship-uuid-123")
+        unrelated_name = agent._byoa.agent_name_for("other-ship")
+
+        registry._local_workers[byoa_name] = WorkerReadyData(
+            worker_name=byoa_name,
+            runner=registry.runner_name,
+        )
+        registry._local_workers[unrelated_name] = WorkerReadyData(
+            worker_name=unrelated_name,
+            runner=registry.runner_name,
+        )
+        registry._remote_workers["runner-1"][byoa_name] = WorkerReadyData(
+            worker_name=byoa_name,
+            runner="runner-1",
+        )
+        registry._remote_workers["runner-1"][unrelated_name] = WorkerReadyData(
+            worker_name=unrelated_name,
+            runner="runner-1",
+        )
+
+        agent._byoa.invalidate_registry_entry(byoa_name)
+
+        assert byoa_name not in registry._local_workers
+        assert byoa_name not in registry._remote_workers["runner-1"]
+        assert unrelated_name in registry._local_workers
+        assert unrelated_name in registry._remote_workers["runner-1"]
 
 
 @pytest.mark.unit

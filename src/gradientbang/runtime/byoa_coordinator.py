@@ -359,12 +359,12 @@ class ByoaCoordinator:
         registry = self._host.get_worker_registry()
         if registry is None:
             return
-        local_tasks = getattr(registry, "_local_tasks", None)
-        if isinstance(local_tasks, dict):
-            local_tasks.pop(agent_name, None)
-        remote_tasks = getattr(registry, "_remote_tasks", None)
-        if isinstance(remote_tasks, dict):
-            for remote_entries in remote_tasks.values():
+        local_workers = getattr(registry, "_local_workers", None)
+        if isinstance(local_workers, dict):
+            local_workers.pop(agent_name, None)
+        remote_workers = getattr(registry, "_remote_workers", None)
+        if isinstance(remote_workers, dict):
+            for remote_entries in remote_workers.values():
                 if isinstance(remote_entries, dict):
                     remote_entries.pop(agent_name, None)
 
