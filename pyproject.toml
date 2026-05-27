@@ -37,6 +37,7 @@ npc-run = "gradientbang.npc.run_npc:main"
 
 # Useful scripts
 universe-bang = "gradientbang.scripts.universe_bang:main"
+functions = "gradientbang.scripts.supabase_serve:main"
 news-digest = "gradientbang.newspaper.scripts.digest:main"
 news-front-page-image = "gradientbang.newspaper.scripts.front_page_image:main"
 news-front-page-regions = "gradientbang.newspaper.scripts.front_page_regions:main"
