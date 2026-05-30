@@ -1720,7 +1720,8 @@ class TaskAgent(LLMWorker):
         # with one short priority hint before the raw steer instruction.
         steered_xml = (
             '<event name="task.steered">\n'
-            "Priority update: revise your plan now; follow this over the original task.\n"
+            "Steering update from commander. Apply it immediately; it supersedes "
+            "conflicting parts of the original task.\n"
             f"{cleaned}\n"
             "</event>"
         )

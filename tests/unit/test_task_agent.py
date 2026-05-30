@@ -974,7 +974,8 @@ class TestSyntheticProgressMessages:
         injected = agent._llm_context.add_message.call_args.args[0]
         assert injected["role"] == "user"
         assert injected["content"].startswith('<event name="task.steered">')
-        assert "Priority update: revise your plan now" in injected["content"]
+        assert "Steering update from commander" in injected["content"]
+        assert "supersedes conflicting parts of the original task" in injected["content"]
         assert "Change direction" in injected["content"]
         assert injected["content"].endswith("Change direction\n</event>")
 
