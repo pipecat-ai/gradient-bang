@@ -967,6 +967,15 @@ class TestSyntheticProgressMessages:
         ]
         agent.queue_frame.assert_awaited_once()
 
+        # The steer is injected as a user message wrapped with a brief
+        # <priority> directive so the LLM treats it as outranking the
+        # original task instruction (which was itself a user message).
+        agent._llm_context.add_message.assert_called_once()
+        injected = agent._llm_context.add_message.call_args.args[0]
+        assert injected["role"] == "user"
+        assert injected["content"].startswith("<priority>")
+        assert "Change direction" in injected["content"]
+
     async def test_duplicate_progress_message_is_suppressed_without_new_action_or_event(self):
         agent = _make_task_agent()
         agent._active_task_id = "task-1"

@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `start_task` no longer silently auto-steers a running task on a busy ship — distinct follow-up requests (e.g. "buy a probe and an Atlas" on the single personal slot) used to collapse into a steer of the in-flight task and get dropped while the LLM reported success. The busy branch now returns `ship_busy` with `current_task_id` and `current_task_description` so the voice agent can call `steer_task` explicitly for refinements or wait for `task.completed` for separate actions. Prompt + tool schema updated to match; `_handle_start_task_tool` failure path now surfaces the result for follow-up inference instead of staying silent.
+- `steer_task` now pre-flights the target's finishing state. If the in-process TaskAgent has already called `finished` (or been cancelled), the orchestrator returns `error: "task_closing"` with `retry_with: "start_task"` instead of firing a steer that would race the terminal turn and silently drop. The wrapper surfaces this result without a forced response cycle so the voice LLM chains a fresh `start_task` in the same turn — no extra spoken pause. Personal and corp in-process ships both covered (same code path); BYOA agents skip the check and fall back to the existing `ship_busy` retry on the follow-up `start_task`.
+- TaskAgent now wraps incoming steer text with a short `<priority>` directive before injecting it into LLM context, so the steer is treated as outranking the original task instruction (which is itself a user message). Orchestrator side drops its now-redundant `"Steering instruction: "` text prefix; the structured wrap is the canonical signal.
 
 ## [0.6.0] - 2026-05-26
 

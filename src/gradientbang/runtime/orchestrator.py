@@ -3054,8 +3054,42 @@ class Orchestrator:
         steering_text = text.strip()
         if not steering_text:
             return {"success": False, "error": "Empty steering instruction"}
-        if not steering_text.lower().startswith("steering instruction:"):
-            steering_text = f"Steering instruction: {steering_text}"
+        # No "Steering instruction:" prefix here — TaskAgent wraps the text
+        # with a structured priority directive before injecting into LLM
+        # context (see TaskAgent._inject_steering).
+
+        # Pre-flight: if the target in-process TaskAgent is in a finishing
+        # state, the steer would race the terminal turn and silently drop.
+        # Return a task_closing directive so the voice LLM chains a fresh
+        # start_task in the same turn (silently — the wrapper avoids the
+        # speech cycle for this failure code). BYOA targets skip the check
+        # (orchestrator has no local liveness state for them); the existing
+        # ship_busy path covers the most common race anyway.
+        target_child = next(
+            (
+                c
+                for c in self._children
+                if isinstance(c, TaskAgent) and c.name == target.agent_name
+            ),
+            None,
+        )
+        if target_child is not None and (
+            target_child._task_finished
+            or target_child._cancelled
+            or target_child._finish_emitted
+        ):
+            return {
+                "success": False,
+                "error": "task_closing",
+                "retry_with": "start_task",
+                "message": (
+                    "Task was already finishing; the steer would not land. "
+                    "Call start_task to issue this as a fresh task."
+                ),
+                "task_id": target.framework_task_id,
+                "task_type": target.task_type,
+                "ship_character_id": target.ship_character_id,
+            }
 
         await self.send_bus_message(
             BusSteerTaskMessage(
@@ -3336,6 +3370,13 @@ class Orchestrator:
     async def _handle_steer_task_tool(self, params: FunctionCallParams):
         result = await self._handle_steer_task(params)
         if isinstance(result, dict) and result.get("success") is False:
+            # task_closing is a silent retry signal: surface the full result
+            # (with retry_with directive) so the voice LLM chains a fresh
+            # start_task in the same turn without speaking about the failed
+            # steer. No assistant response cycle, no run_llm forcing.
+            if result.get("error") == "task_closing":
+                await params.result_callback({"result": result})
+                return
             self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"error": result.get("error", "Request failed.")},

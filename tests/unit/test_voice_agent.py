@@ -677,6 +677,9 @@ class TestHandleSteerTask:
         child.name = "task_abc123"
         child._is_corp_ship = False
         child._character_id = "ship_character_id_xyz"
+        child._task_finished = False
+        child._cancelled = False
+        child._finish_emitted = False
         agent._children = [child]
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._find_steer_target_by_task_id = MagicMock(
@@ -699,7 +702,9 @@ class TestHandleSteerTask:
         assert isinstance(sent, BusSteerTaskMessage)
         assert sent.target == "task_abc123"
         assert sent.task_id == full_id
-        assert sent.text.startswith("Steering instruction: ")
+        # No "Steering instruction:" prefix — TaskAgent wraps the raw text
+        # with a <priority> directive on injection.
+        assert sent.text == "Change course"
 
     async def test_steer_success_for_byoa_agent_targets_bus_name(self):
         from gradientbang.runtime.bus import BusSteerTaskMessage
@@ -781,6 +786,42 @@ class TestHandleSteerTask:
         assert "steer_task" in result["suggested_action"]
         assert full_id in result["message"]
         agent.send_bus_message.assert_not_called()
+
+    async def test_steer_on_closing_task_returns_task_closing_with_retry_directive(self):
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.orchestrator import _SteerTarget
+
+        agent = _make_orchestrator()
+        agent.send_bus_message = AsyncMock()
+        child = MagicMock(spec=TaskAgent)
+        child.name = "task_abc123"
+        child._is_corp_ship = False
+        child._character_id = "ship_character_id_xyz"
+        child._task_finished = True  # already called finished tool
+        child._cancelled = False
+        child._finish_emitted = False
+        agent._children = [child]
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._find_steer_target_by_task_id = MagicMock(
+            return_value=_SteerTarget(
+                framework_task_id=full_id,
+                agent_name=child.name,
+                task_type="player_ship",
+                ship_character_id=child._character_id,
+            )
+        )
+        params = MagicMock()
+        params.arguments = {"task_id": "ff3fa419", "message": "actually go to Venus"}
+
+        result = await agent._handle_steer_task(params)
+
+        # No steer fired — would race the terminal turn and drop.
+        agent.send_bus_message.assert_not_called()
+        assert result["success"] is False
+        assert result["error"] == "task_closing"
+        assert result["retry_with"] == "start_task"
+        assert result["task_id"] == full_id
+        assert result["ship_character_id"] == child._character_id
 
     async def test_steer_missing_args(self):
         agent = _make_orchestrator()
@@ -1192,6 +1233,32 @@ class TestTaskToolWrappers:
             in deferred_frame.messages[0]["content"]
         )
         assert "Steering instruction sent" in deferred_frame.messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_steer_task_tool_task_closing_silently_surfaces_retry(self):
+        agent = _make_orchestrator()
+        result = {
+            "success": False,
+            "error": "task_closing",
+            "retry_with": "start_task",
+            "message": "Task was already finishing; the steer would not land. Call start_task to issue this as a fresh task.",
+            "task_id": "task_abc123",
+            "task_type": "player_ship",
+            "ship_character_id": "ship-xyz",
+        }
+        agent._handle_steer_task = AsyncMock(return_value=result)
+        params = _make_function_call_params(function_name="steer_task", result_callback=AsyncMock())
+
+        await agent._handle_steer_task_tool(params)
+
+        # task_closing must NOT trigger the loud failure cycle — no
+        # response cycle started, no run_llm=True forcing speech. Default
+        # result_callback runs inference so the LLM chains start_task.
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.await_args.args[0] == {"result": result}
+        assert "properties" not in params.result_callback.await_args.kwargs
+        assert agent._assistant_cycle_active is False
+        assert len(agent._deferred_frames) == 0
 
 
 @pytest.mark.unit

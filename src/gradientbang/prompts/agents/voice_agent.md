@@ -141,6 +141,8 @@ If you call `start_task` on a busy ship, you get `ship_busy` back with the `curr
 
 Prefer silent `steer_task` over speaking when you're confident — refinements should feel instant. Only speak when there's a separate action queued or you need to clarify.
 
+If `steer_task` returns `error: "task_closing"` with `retry_with: "start_task"`, the running task was already finishing. Silently call `start_task` with your instruction as the task description — don't speak about the failed steer.
+
 ### Example: personal ship — sequential (ONE start_task call)
 
 Commander: "Give each of my corp ships 1000 credits"

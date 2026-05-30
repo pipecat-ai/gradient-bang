@@ -1129,7 +1129,13 @@ STOP_TASK = FunctionSchema(
 
 STEER_TASK = FunctionSchema(
     name="steer_task",
-    description="Send a steering instruction to a running task.",
+    description=(
+        "Send a steering instruction to a running task — the TaskAgent treats "
+        "the instruction as a priority override of its original task. "
+        "If the task is already finishing, this returns error='task_closing' "
+        "with retry_with='start_task'; silently re-issue as start_task in the "
+        "same turn."
+    ),
     properties={
         "task_id": {
             "type": "string",
