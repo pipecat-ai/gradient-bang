@@ -70,7 +70,7 @@ async def build_pgmq_bus(
         pool_size: Max asyncpg pool size. Default 4.
 
     Returns:
-        An initialized bus ready to pass to ``PipelineRunner(bus=...)``.
+        An initialized bus ready to pass to ``WorkerRunner(bus=...)``.
     """
     dsn = (database_url or "").strip()
     if not dsn:

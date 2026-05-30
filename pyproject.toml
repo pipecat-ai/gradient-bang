@@ -12,7 +12,7 @@ dependencies = [
     "psycopg[binary]>=3.2.1",
     "pydantic-settings>=2,<3",
     "supabase>=2.24.0",
-    "pipecat-ai[deepgram,daily,cartesia,gradium,webrtc,silero,google,anthropic,runner,pgmq]>=1.2",
+    "pipecat-ai[deepgram,daily,cartesia,gradium,webrtc,silero,google,anthropic,runner,pgmq]>=1.3",
     "pipecat-ai-cli",
     "pipecatcloud>=0.6.0",
     "boto3>=1.35.0",
@@ -69,12 +69,6 @@ override-dependencies = [
     "openai==1.99.5",
 ]
 package = true
-
-[tool.uv.sources]
-# Tracks pipecat-ai/pipecat PR #4493 (Port pipecat-subagents into pipecat core).
-# Replace with a published pipecat-ai release once the PR is merged.
-pipecat-ai = { git = "https://github.com/pipecat-ai/pipecat.git", branch = "aleix/port-subagents-to-pipecat" }
-
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

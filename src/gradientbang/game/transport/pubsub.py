@@ -556,6 +556,10 @@ class PubsubEventAdapter:
         )
 
     async def _drain_bootstrap_queue(self, discard_request_ids: set[str]) -> None:
+        logger.info(
+            "Flushing pubsub message queue after bootstrap; bootstrap_request_ids={}",
+            len(discard_request_ids),
+        )
         deadline = time.monotonic() + BOOTSTRAP_DRAIN_TIMEOUT_SECONDS
         pgmq_url = _resolve_pgmq_url()
         async with await psycopg.AsyncConnection.connect(

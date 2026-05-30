@@ -1473,13 +1473,13 @@ class TestCorpShipRouting:
         }
 
         # Patch add_agent to avoid framework setup
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_worker.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
@@ -1501,14 +1501,14 @@ class TestCorpShipRouting:
             "ship_id": CORP_SHIP_ID,
         }
 
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "corp_ship"
         # Corp-ship tasks use the broker-owned game client.
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_worker.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is True
 
@@ -1528,13 +1528,13 @@ class TestCorpShipRouting:
             "ship_id": char_id,  # Same as the agent's character_id
         }
 
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_worker.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
@@ -1550,13 +1550,13 @@ class TestCorpShipRouting:
         params = MagicMock()
         params.arguments = {"task_description": "Go to sector 5"}
 
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_worker.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
@@ -1574,7 +1574,7 @@ class TestCorpShipRouting:
             "context": "The commander asked about a sector visit.",
         }
 
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
 
@@ -1594,7 +1594,7 @@ class TestCorpShipRouting:
         params = MagicMock()
         params.arguments = {"task_description": "Tell me what we did in the last session"}
 
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
 
@@ -1614,7 +1614,7 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_worker = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
 
         params_a = MagicMock()
         params_a.arguments = {"task_description": "Transfer 2000 credits"}
@@ -1651,7 +1651,7 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_worker = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
 
         # Start a task — locks the ship
         params = MagicMock()
@@ -1693,7 +1693,7 @@ class TestCorpShipRouting:
             agent._children.append(task_agent)
             raise RuntimeError("registry.watch failed")
 
-        agent.add_worker = AsyncMock(side_effect=add_agent_that_fails)
+        agent.add_workers = AsyncMock(side_effect=add_agent_that_fails)
 
         params = MagicMock()
         params.arguments = {"task_description": "Explore sector 5"}
@@ -1720,7 +1720,7 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_worker = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
         agent._dispatch_task_with_id = AsyncMock()
 
         # First task — creates a new agent
@@ -1731,7 +1731,7 @@ class TestCorpShipRouting:
         # First task is dispatched via on_worker_ready (deferred); task_id is the
         # pre-generated framework UUID stored in _pending_tasks.
         first_task_id = result1["task_id"]
-        assert agent.add_worker.call_count == 1
+        assert agent.add_workers.call_count == 1
 
         # Complete the first task
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
@@ -1756,7 +1756,7 @@ class TestCorpShipRouting:
         params2.arguments = {"task_description": "Trade goods"}
         result2 = await agent._handle_start_task(params2)
         assert result2["success"]
-        assert agent.add_worker.call_count == 2
+        assert agent.add_workers.call_count == 2
         second_child = next(c for c in agent._children if isinstance(c, TaskAgent))
         assert second_child.name != first_agent_name
         assert first_task_id != result2["task_id"]
@@ -1780,7 +1780,7 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_worker = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Test Ship"))
 
         # Start corp task
@@ -1827,7 +1827,7 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_worker = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Test Ship"))
 
         params = MagicMock()
@@ -1899,7 +1899,7 @@ class TestServerSideShipLock:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_worker = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
 
         params = MagicMock()
         params.arguments = {"task_description": "Mine resources"}
@@ -1922,7 +1922,7 @@ class TestServerSideShipLock:
         agent = _make_orchestrator()
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Bob's Probe"))
         agent.game_client.base_url = "http://localhost"
 
@@ -1946,7 +1946,7 @@ class TestServerSideShipLock:
         assert result["success"] is False
         assert "BYOA ship" in result["error"]
         assert "0123456789ab" in result["error"]
-        agent.add_worker.assert_not_called()
+        agent.add_workers.assert_not_called()
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio
@@ -1985,7 +1985,7 @@ class TestServerSideShipLock:
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio
-    async def test_player_agent_acquires_before_add_worker(self):
+    async def test_player_agent_acquires_before_add_workers(self):
         """New local player worker must hold the server lock before spawn."""
         from gradientbang.runtime.subagents.task_agent import TaskAgent
 
@@ -1998,19 +1998,19 @@ class TestServerSideShipLock:
             order.append("acquire")
             return {"success": True}
 
-        async def add_worker_mock(task_agent):
-            order.append("add_worker")
+        async def add_workers_mock(task_agent):
+            order.append("add_workers")
             agent._children.append(task_agent)
 
         agent._game_client.task_lifecycle = AsyncMock(side_effect=lifecycle_mock)
-        agent.add_worker = AsyncMock(side_effect=add_worker_mock)
+        agent.add_workers = AsyncMock(side_effect=add_workers_mock)
 
         params = MagicMock()
         params.arguments = {"task_description": "Trade goods"}
         result = await agent._handle_start_task(params)
 
         assert result["success"]
-        assert order == ["acquire", "add_worker"]
+        assert order == ["acquire", "add_workers"]
         assert agent._locked_ships[agent._character_id] == result["task_id"]
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
         assert child._is_corp_ship is False

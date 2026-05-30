@@ -39,8 +39,9 @@ class _VoiceWorker:
     async def send_bus_message(self, message) -> None:
         self.calls.append(("send_bus_message", message))
 
-    async def add_worker(self, worker) -> None:
-        self.calls.append(("add_worker", worker))
+    async def add_workers(self, *workers) -> None:
+        for worker in workers:
+            self.calls.append(("add_workers", worker))
 
     async def watch_worker(self, worker_name: str) -> None:
         self.calls.append(("watch_worker", worker_name))
@@ -208,7 +209,7 @@ async def test_worker_host_facade_delegates_to_voice_worker() -> None:
     assert orch.registry is worker.registry
 
     await orch.send_bus_message("message")
-    await orch.add_worker("worker")
+    await orch.add_workers("worker")
     await orch.watch_worker("task_123")
     await orch.cancel_job_group("job-id", reason="done")
     await orch.request_job_update("job-id", "task_123")
@@ -218,7 +219,7 @@ async def test_worker_host_facade_delegates_to_voice_worker() -> None:
 
     assert worker.calls == [
         ("send_bus_message", "message"),
-        ("add_worker", "worker"),
+        ("add_workers", "worker"),
         ("watch_worker", "task_123"),
         ("cancel_job_group", "job-id", "done"),
         ("request_job_update", "job-id", "task_123"),

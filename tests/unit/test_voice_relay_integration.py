@@ -822,7 +822,7 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning should still work — mock add_agent to avoid framework calls
-        with patch.object(h.orchestrator, "add_worker", new_callable=AsyncMock) as mock_add:
+        with patch.object(h.orchestrator, "add_workers", new_callable=AsyncMock) as mock_add:
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "trade at port"}
             params.result_callback = AsyncMock()
@@ -845,7 +845,7 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning works
-        with patch.object(h.orchestrator, "add_worker", new_callable=AsyncMock):
+        with patch.object(h.orchestrator, "add_workers", new_callable=AsyncMock):
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "explore sector 5"}
             params.result_callback = AsyncMock()

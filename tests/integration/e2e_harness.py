@@ -459,10 +459,10 @@ class E2EHarness:
             with_task_agents: Kept for call-site compatibility; task agents
                 are spawned and watched through the player worker.
         """
-        from pipecat.pipeline.runner import PipelineRunner
+        from pipecat.workers.runner import WorkerRunner
 
-        self._runner = PipelineRunner(bus=self.bus)
-        await self._runner.add_worker(self.voice_worker)
+        self._runner = WorkerRunner(bus=self.bus)
+        await self._runner.add_workers(self.voice_worker)
         self._runner_task = asyncio.create_task(self._runner.run())
         # Let the runner start agents
         await asyncio.sleep(0.2)

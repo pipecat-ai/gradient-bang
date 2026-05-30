@@ -216,7 +216,7 @@ class ByoaApp:
         # Lazy imports — keep startup light when this module is imported just
         # for type/annotation purposes (e.g. by a Mode-B operator's hooks file
         # at install time).
-        from pipecat.pipeline.runner import PipelineRunner
+        from pipecat.workers.runner import WorkerRunner
 
         from gradientbang.runtime.bus_transport.pgmq import build_pgmq_bus
         from gradientbang.runtime.subagents.task_agent import TaskAgent
@@ -230,7 +230,7 @@ class ByoaApp:
         )
 
         agent_name = f"byoa_{ctx.ship_id}"
-        runner = PipelineRunner(
+        runner = WorkerRunner(
             name=f"byoa_runner_{ctx.ship_id}",
             bus=bus,
             handle_sigint=True,

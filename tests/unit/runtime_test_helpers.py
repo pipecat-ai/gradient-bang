@@ -49,8 +49,8 @@ class RuntimeWorker:
     async def send_bus_message(self, message) -> None:
         pass
 
-    async def add_worker(self, worker) -> None:
-        self._children.append(worker)
+    async def add_workers(self, *workers) -> None:
+        self._children.extend(workers)
 
     async def watch_worker(self, worker_name: str) -> None:
         pass

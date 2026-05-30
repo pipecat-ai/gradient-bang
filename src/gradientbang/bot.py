@@ -15,7 +15,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import BotSpeakingFrame, LLMRunFrame, UserSpeakingFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
+from pipecat.workers.runner import WorkerRunner
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_context_summarizer import (
@@ -155,9 +155,6 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     # ── Session config ─────────────────────────────────────────────────
     config = BotRuntimeConfig.from_body(body)
-    # ``bypass_tutorial`` is accepted for the upcoming ScriptedAgent tutorial
-    # flow. That pipeline is not implemented in this runtime yet, so the value
-    # intentionally does not affect new-player onboarding prompt injection.
 
     tts_provider = get_tts_provider()
     voice_config = get_voice_config(config.voice_name, tts_provider) if config.voice_name else None
@@ -359,7 +356,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     except Exception as exc:
         logger.error(f"Subagent bus init failed: {exc}")
         return
-    agent_runner = PipelineRunner(
+    agent_runner = WorkerRunner(
         bus=orchestrator.bus,
         handle_sigint=getattr(runner_args, "handle_sigint", False),
     )
@@ -479,12 +476,12 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     try:
         periodic_upload_task = asyncio.create_task(_periodic_voice_context_upload())
         await agent_runner.run()
-        logger.info("PipelineRunner finished")
+        logger.info("WorkerRunner finished")
     except asyncio.CancelledError:
-        logger.info("PipelineRunner cancelled")
+        logger.info("WorkerRunner cancelled")
         raise
     except Exception as exc:
-        logger.exception(f"PipelineRunner error: {exc}")
+        logger.exception(f"WorkerRunner error: {exc}")
     finally:
         if periodic_upload_task is not None:
             periodic_upload_task.cancel()

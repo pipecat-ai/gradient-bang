@@ -192,9 +192,9 @@ async def run_task(args: argparse.Namespace) -> int:
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 
-    from pipecat.pipeline.base_worker import BaseWorker
     from pipecat.pipeline.job_context import JobStatus
-    from pipecat.pipeline.runner import PipelineRunner
+    from pipecat.workers.base_worker import BaseWorker
+    from pipecat.workers.runner import WorkerRunner
 
     from gradientbang.runtime.subagents.task_agent import TaskAgent
     from gradientbang.runtime.tool_schema import (
@@ -323,7 +323,7 @@ async def run_task(args: argparse.Namespace) -> int:
                 if args.instructions:
                     payload["context"] = args.instructions
                 self._pending_payload = payload
-                await self.add_worker(task_agent)
+                await self.add_workers(task_agent)
 
             async def _forward_event(self, event):
                 await self.send_bus_message(
@@ -346,7 +346,7 @@ async def run_task(args: argparse.Namespace) -> int:
                 await super().on_job_completed(result)
                 task_done.set()
 
-        runner = PipelineRunner(handle_sigint=True)
+        runner = WorkerRunner(handle_sigint=True)
         launcher = Launcher("launcher")
         await runner.add_workers(launcher)
 

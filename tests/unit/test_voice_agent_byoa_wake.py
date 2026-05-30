@@ -326,7 +326,7 @@ class TestStartTaskWakeBranch:
         agent._build_task_start_context = MagicMock(return_value=None)
         agent._event_relay = None
         agent.watch_worker = AsyncMock()
-        agent.add_worker = AsyncMock()
+        agent.add_workers = AsyncMock()
         agent._ensure_heartbeat_task_running = MagicMock()
 
     async def test_byoa_ship_dispatch_registers_watchdog_and_calls_wake(self):
@@ -514,6 +514,6 @@ class TestStartTaskWakeBranch:
         assert result["success"] is True
         assert result.get("status") != "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] is None
-        agent.add_worker.assert_awaited_once()
+        agent.add_workers.assert_awaited_once()
         assert agent._byoa._pending_wakes == {}
         agent._game_client.wake_agent.assert_not_awaited()

@@ -35,7 +35,7 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
-from pipecat.pipeline.job_context import JobStatus
+from pipecat.pipeline.job_context import JobGroup, JobGroupError, JobStatus
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -87,9 +87,17 @@ from gradientbang.runtime.task_lookup import (
     job_ids_to_cancel_for_player_combat,
 )
 from gradientbang.runtime.voice_runtime import VoiceRuntime
-from gradientbang.utils.formatting import looks_like_uuid
+from gradientbang.utils.formatting import (
+    looks_like_uuid,
+    summarize_corporation_info,
+    summarize_leaderboard,
+    summarize_ship_definitions,
+)
+from gradientbang.utils.summary_formatters import list_known_ports_summary
 from gradientbang.utils.prompt_loader import (
+    AVAILABLE_TOPICS,
     apply_prompt_substitutions,
+    load_fragment,
     render_onboarding_task_context,
     set_prompt_substitutions,
 )
@@ -310,8 +318,8 @@ class Orchestrator:
         await voice_worker.send_bus_message(message)
 
     @require_voice_worker
-    async def add_worker(self, voice_worker: PipelineWorker, worker) -> None:
-        await voice_worker.add_worker(worker)
+    async def add_workers(self, voice_worker: PipelineWorker, *workers) -> None:
+        await voice_worker.add_workers(*workers)
 
     @require_voice_worker
     async def watch_worker(self, voice_worker: PipelineWorker, worker_name: str) -> None:
@@ -1655,8 +1663,6 @@ class Orchestrator:
     # ── Direct-response tools ──────────────────────────────────────────
 
     async def _handle_corporation_info(self, params: FunctionCallParams):
-        from gradientbang.utils.formatting import summarize_corporation_info
-
         args = params.arguments
         if args.get("list_all"):
             result = await self._game_client._request("corporation_list", {})
@@ -1669,8 +1675,6 @@ class Orchestrator:
         await params.result_callback({"summary": summary})
 
     async def _handle_leaderboard_resources(self, params: FunctionCallParams):
-        from gradientbang.utils.formatting import summarize_leaderboard
-
         args = params.arguments
         result = await self._game_client.leaderboard_resources(
             character_id=self._character_id,
@@ -1686,8 +1690,6 @@ class Orchestrator:
         await params.result_callback({"summary": summary})
 
     async def _handle_ship_definitions(self, params: FunctionCallParams):
-        from gradientbang.utils.formatting import summarize_ship_definitions
-
         result = await self._game_client.get_ship_definitions(include_description=True)
         definitions = result.get("definitions", result)
         summary = summarize_ship_definitions(definitions)
@@ -1699,8 +1701,6 @@ class Orchestrator:
         # inline, so we format it and hand it straight to the LLM. The matching
         # ports.list event is dropped from voice context in event_relay.py
         # (AppendRule.NEVER) to avoid duplicating the data.
-        from gradientbang.utils.summary_formatters import list_known_ports_summary
-
         args = params.arguments
         kwargs = {}
         for key in ("from_sector", "max_hops", "port_type", "commodity", "trade_type", "mega"):
@@ -1713,8 +1713,6 @@ class Orchestrator:
         await params.result_callback({"summary": summary})
 
     async def _handle_load_game_info(self, params: FunctionCallParams):
-        from gradientbang.utils.prompt_loader import AVAILABLE_TOPICS, load_fragment
-
         topic = str(params.arguments.get("topic", "")).strip()
         if topic not in AVAILABLE_TOPICS:
             self._begin_assistant_response_cycle()
@@ -2197,8 +2195,6 @@ class Orchestrator:
         synchronously from the start_task tool call, then dispatch the request
         once the worker pipeline has come up.
         """
-        from pipecat.pipeline.job_context import JobGroup, JobGroupError
-
         all_ready = await self._wait_workers_ready([agent_name])
         try:
             await asyncio.wait_for(all_ready, timeout=timeout)
@@ -2918,7 +2914,7 @@ class Orchestrator:
                 self._pending_tasks[agent_name] = (framework_task_id, payload)
                 self._locked_ships[target_character_id] = framework_task_id
                 try:
-                    await self.add_worker(task_agent)
+                    await self.add_workers(task_agent)
                     # pipecat-subagents 0.4 requires explicit watch_agent for
                     # on_worker_ready to fire on dynamically-spawned children.
                     # Without it, _pending_tasks is never drained.
