@@ -14,8 +14,8 @@ from loguru import logger
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import BotSpeakingFrame, LLMRunFrame, UserSpeakingFrame
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.workers.runner import WorkerRunner
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_context_summarizer import (
@@ -44,6 +44,7 @@ from pipecat.utils.context.llm_context_summarization import (
     LLMAutoContextSummarizationConfig,
     LLMContextSummaryConfig,
 )
+from pipecat.workers.runner import WorkerRunner
 from pydantic import BaseModel, ConfigDict, Field
 
 from gradientbang import STARTUP_BANNER, __version__
@@ -65,6 +66,7 @@ from gradientbang.runtime.inference_gate import (
 )
 from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.s3_smart_turn import S3SmartTurnAnalyzerV3
+from gradientbang.runtime.subagents.ui_agent import UIAgent
 from gradientbang.runtime.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.runtime.voice_runtime import build_voice_tools
 from gradientbang.runtime.voices import (
@@ -347,6 +349,12 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         enabled=settings.BOT_IDLE_REPORT_ENABLED,
     )
 
+    # ── UI agent ───────────────────────────────────────────────────────
+    # Parallel branch alongside the voice LLM. Drives client panels/modals
+    # from the same user turn the voice LLM sees.
+    # @TODO: run as worker vs. parallel pipeline branch
+    ui_agent = UIAgent.create(rtvi=rtvi, game_client=orchestrator.game_client)
+
     # ── Pipeline ────────────────────────────────────────────────────────
     voice_llm = create_llm_service(get_voice_llm_config())
 
@@ -372,14 +380,20 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
             idle_report_processor,
             pre_llm_gate,
             user_aggregator,
-            voice_llm,
-            post_llm_gate,
-            token_usage_metrics,
-            tts,
-            transport.output(),
-            assistant_aggregator,
+            ParallelPipeline(
+                [
+                    voice_llm,
+                    post_llm_gate,
+                    token_usage_metrics,
+                    tts,
+                    transport.output(),
+                    assistant_aggregator,
+                ],
+                ui_agent.branch,
+            ),
         ]
     )
+
     if is_cekura_enabled():
         get_tracer().track_pipeline(main_pipeline, context, runner_args=runner_args)
 
@@ -394,7 +408,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         rtvi_processor=rtvi,
         rtvi_observer_params=RTVIObserverParams(
             function_call_report_level={"*": RTVIFunctionCallReportLevel.FULL},
-            ignored_sources=[],
+            ignored_sources=ui_agent.branch,
         ),
         cancel_on_idle_timeout=False,
         idle_timeout_secs=600,
@@ -404,6 +418,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
             TaskActivityFrame,
         ),
     )
+
     if is_cekura_enabled():
         get_tracer().register_task_handlers(voice_worker, transport=transport)
 

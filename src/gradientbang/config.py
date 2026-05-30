@@ -269,6 +269,10 @@ class Settings(BaseSettings):
         default=60.0,
         description="TTL (seconds) for the UIAgent ships cache.",
     )
+    UI_AGENT_INTENT_REQUEST_DELAY_SECS: float = Field(
+        default=2.0,
+        description="Seconds to wait before requesting a deferred UIAgent intent.",
+    )
 
     # ===== LLM provider keys =====
     OPENAI_API_KEY: str | None = Field(
