@@ -117,7 +117,7 @@ Optional:
 - [api/wake.ts](../deployment/vercel/api/wake.ts): authenticates wakes and starts the sandbox.
 - [package.json](../deployment/vercel/package.json): Vercel function dependencies.
 - [vercel.json](../deployment/vercel/vercel.json): Vercel route settings.
-- [prompt.example.md](../deployment/vercel/prompt.example.md): optional prompt starting point.
+- [prompt.md](../deployment/vercel/prompt.md): optional prompt starting point.
 
 Most operators only edit `.env.byoa` and optionally `prompt.md`.
 

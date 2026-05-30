@@ -219,85 +219,6 @@ scripts/reset-world.sh --env .env.cloud 1000 42
 
 Local resets also create/update the restricted BYOA bus login used by `uv run byoa`: `postgresql://byoa_login:byoa_dev_password@127.0.0.1:54322/postgres`.
 
-### Local-adjacent development (Tailscale)
-
-If you want to be able to run your Gradient Bang stack on one computer and access it on another, the easiest way is to use [Tailscale](https://tailscale.com/). You can use `tailscale serve` along with a few config changes to make it available on your Tailnet. The `systemd` folder includes another service, `gradient-bang-tailscale.service`, that runs a few `tailscale serve` commands that are designed to work with a few environment changes. In the snippet below, `apollo` is the name of your machine, and `seahorse-peacock` is your Tailscale DNS name. [Follow these directions](https://tailscale.com/docs/how-to/set-up-https-certificates) to set up HTTPS for your Tailnet, then run `tailscale cert` on this machine. (While you're in your Tailscale dashboard, you can go to the DNS section to get a fun name like seahorse-peacock instead of the random hex if you want).
-
-Make these changes to your environment files:
-
-```bash
-# .env.supabase
-DAILY_API_KEY=7df... # Your Daily API key, because you'll want to run the Daily transport
-SUPABASE_URL=https://apollo.seahorse-peacock.ts.net:8443/edge
-
-# .env.bot
-SUPABASE_URL=https://apollo.seahorse-peacock.ts.net:8443/edge
-DAILY_API_KEY=7df...
-
-# client/app/.env.local
-VITE_SERVER_URL=https://apollo.seahorse-peacock.ts.net:8443/edge/functions/v1
-VITE_PIPECAT_TRANSPORT=daily
-VITE_BOT_URL=https://apollo.seahorse-peacock.ts.net:8443/bot
-```
-
-Open `client/app/vite.config.js`, and add the `host` and `allowedHosts` lines so the `server` object at the bottom of the file looks like this:
-
-```js
-  server: {
-    host: '0.0.0.0',
-    allowedHosts: true,
-    watch: {
-      // Watch the starfield dist for changes
-      ignored: ["!**/node_modules/@gradient-bang/**"],
-    },
-  },
-```
-
-Then run a few `tailscale serve` commands, along with the other services.
-
-```bash
-# Run these if you're not using gradient-bang-tailscale.service, which runs them for you
-tailscale serve --bg --https 443 http://localhost:5173
-tailscale serve --bg --https 8443 --set-path=edge http://localhost:54321
-tailscale serve --bg --https 8443 --set-path=bot http://localhost:7860
-
-# To turn them all off:
-tailscale serve reset
-
-# to start Supabase (this runs in the background, so you don't have the leave the terminal open)
-npx supabase start --workdir deployment # and don't forget to "npx supabase stop --workdir deployment" when you're done!)
-
-# Keep these open in different terminal windows:
-npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase
-# add the transport and host options to the bot
-uv run bot -t daily --host 0.0.0.0
-cd client && pnpm run dev
-```
-
-On Linux, I use `systemd` to manage all of those. There's a `systemd` folder that includes files for all four of those components, and a `gradient-bang.target` file that lets me do this:
-
-```bash
-# Start working
-systemctl --user start gradient-bang.target
-
-# Restart everything, because sometimes you can't be too careful
-systemctl --user restart gradient-bang.target
-
-# Give me my computer back, please
-systemctl --user stop gradient-bang.target
-```
-
-But _actually_, I created an alias to make that even easier:
-
-```bash
-gb() {
-  systemctl --user "$@" gradient-bang.target
-}
-
-# Now I can just do this to start:
-gb start
-```
-
 ---
 
 ## Event delivery modes
@@ -352,7 +273,7 @@ Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how the playe
 
 ### `local` (default)
 
-In-process `AsyncQueueBus` from `pipecat-ai-subagents`. No env changes needed.
+In-process `AsyncQueueBus` from `pipecat.bus`. No env changes needed.
 
 ### `pgmq`
 
