@@ -41,25 +41,32 @@ let currentFunctionName = "";
 // Save the real Deno.serve so we can restore it later
 const realServe = Deno.serve.bind(Deno);
 
-// Replace Deno.serve with a stub that captures the handler
-// deno-lint-ignore no-explicit-any
-(Deno as any).serve = (handlerOrOpts: any, maybeHandler?: any) => {
-  const fn: Handler | undefined =
-    typeof handlerOrOpts === "function" ? handlerOrOpts : maybeHandler;
-  if (currentFunctionName && fn) {
-    routes[currentFunctionName] = fn;
-  }
-  // Return a fake Deno.HttpServer to satisfy any callers
-  return {
-    finished: Promise.resolve(),
-    ref() {},
-    unref() {},
-    shutdown() {
-      return Promise.resolve();
-    },
-    addr: { port: 0, hostname: "localhost", transport: "tcp" as const },
-  };
-};
+// Replace Deno.serve with a stub that captures the handler.
+// Deno 2.8+ defines Deno.serve as a lazy getter with no setter, so plain
+// assignment throws "Cannot set property serve … which has only a getter".
+// defineProperty bypasses the getter because the property is configurable.
+Object.defineProperty(Deno, "serve", {
+  // deno-lint-ignore no-explicit-any
+  value: (handlerOrOpts: any, maybeHandler?: any) => {
+    const fn: Handler | undefined =
+      typeof handlerOrOpts === "function" ? handlerOrOpts : maybeHandler;
+    if (currentFunctionName && fn) {
+      routes[currentFunctionName] = fn;
+    }
+    // Return a fake Deno.HttpServer to satisfy any callers
+    return {
+      finished: Promise.resolve(),
+      ref() {},
+      unref() {},
+      shutdown() {
+        return Promise.resolve();
+      },
+      addr: { port: 0, hostname: "localhost", transport: "tcp" as const },
+    };
+  },
+  configurable: true,
+  writable: true,
+});
 
 // Dynamically import each edge function — Deno.serve inside each module
 // will call our stub, populating `routes`.
@@ -73,9 +80,12 @@ for (const name of functionNames) {
 }
 currentFunctionName = "";
 
-// Restore the real Deno.serve
-// deno-lint-ignore no-explicit-any
-(Deno as any).serve = realServe;
+// Restore the real Deno.serve (see defineProperty note above)
+Object.defineProperty(Deno, "serve", {
+  value: realServe,
+  configurable: true,
+  writable: true,
+});
 
 const loadedCount = Object.keys(routes).length;
 console.log(
