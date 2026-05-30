@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `start_task` no longer silently auto-steers a running task on a busy ship — distinct follow-up requests (e.g. "buy a probe and an Atlas" on the single personal slot) used to collapse into a steer of the in-flight task and get dropped while the LLM reported success. The busy branch now returns `ship_busy` with `current_task_id` and `current_task_description` so the voice agent can call `steer_task` explicitly for refinements or wait for `task.completed` for separate actions. Prompt + tool schema updated to match; `_handle_start_task_tool` failure path now surfaces the result for follow-up inference instead of staying silent.
+
 ## [0.6.0] - 2026-05-26
 
 ### Changed

@@ -326,6 +326,7 @@ class ByoaCoordinator:
         character_id: str,
         actor_character_id: str,
         task_metadata: Dict[str, Any],
+        task_description: Optional[str] = None,
     ) -> None:
         """Record a BYOA agent as the active task-holder for `agent_name`."""
         self._active_agents[agent_name] = {
@@ -333,6 +334,7 @@ class ByoaCoordinator:
             "character_id": character_id,
             "actor_character_id": actor_character_id,
             "task_metadata": task_metadata,
+            "task_description": task_description,
         }
 
     def deactivate(self, agent_name: str) -> Optional[Dict[str, Any]]:

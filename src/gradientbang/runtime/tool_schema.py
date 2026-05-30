@@ -1085,13 +1085,12 @@ RENAME_CORPORATION = FunctionSchema(
 START_TASK = FunctionSchema(
     name="start_task",
     description=(
-        "Start a complex multi-step task for navigation, trading, or exploration. "
-        "Can control your own ship or a corporation ship. "
-        "If a task is already running on the target ship, this call steers the "
-        "existing task with the new description instead of starting a fresh one — "
-        "the running task keeps its in-flight progress and reassesses with the "
-        "new instructions on its next turn. Use stop_task explicitly if you need "
-        "a clean slate."
+        "Start a NEW multi-step task (navigation, trading, exploration, purchases) "
+        "on your own ship or a corp ship. If the target ship's task slot is already "
+        "occupied, this returns a ship_busy result with the active current_task_id "
+        "and current_task_description — call steer_task with current_task_id to "
+        "refine the running task, or wait for task.completed before calling "
+        "start_task again. A running task NEVER handles a new start_task."
     ),
     properties={
         "task_description": {
