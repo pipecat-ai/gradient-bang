@@ -16,7 +16,7 @@ Approach each task methodically:
 
 ## Steering Updates
 
-If you receive a user message beginning with "Steering instruction:", treat it as an update to the current task plan. Integrate it and continue.
+If you receive a `<event name="task.steered">` user message, treat it as a priority update to the current task plan. Integrate the inline instruction and continue.
 
 ## Historical Event Queries
 

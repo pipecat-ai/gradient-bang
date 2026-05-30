@@ -1715,15 +1715,13 @@ class TaskAgent(LLMWorker):
         cleaned = text.strip()
         if not cleaned:
             return
-        # Single user message: task.steered event with the steer text inside.
-        # Same event-xml shape as task.progress / task.cancelled the agent
-        # already reads. The directive line tells the LLM to prioritize this
-        # over its original task instruction (which is itself a plain user
-        # message — no priority signal without this wrap).
+        # Single user message: task.steered event with the steer text inline.
+        # This matches the event-message flow the task agent already reads,
+        # with one short priority hint before the raw steer instruction.
         steered_xml = (
             '<event name="task.steered">\n'
-            "User has steered your task. Override and prioritize your current "
-            f"plan with the instruction below.\n{cleaned}"
+            "Priority update: revise your plan now; follow this over the original task.\n"
+            f"{cleaned}\n"
             "</event>"
         )
         if self._llm_context is not None:

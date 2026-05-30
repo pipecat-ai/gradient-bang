@@ -974,9 +974,9 @@ class TestSyntheticProgressMessages:
         injected = agent._llm_context.add_message.call_args.args[0]
         assert injected["role"] == "user"
         assert injected["content"].startswith('<event name="task.steered">')
-        assert "User has steered your task" in injected["content"]
-        assert "Override and prioritize" in injected["content"]
+        assert "Priority update: revise your plan now" in injected["content"]
         assert "Change direction" in injected["content"]
+        assert injected["content"].endswith("Change direction\n</event>")
 
     async def test_duplicate_progress_message_is_suppressed_without_new_action_or_event(self):
         agent = _make_task_agent()

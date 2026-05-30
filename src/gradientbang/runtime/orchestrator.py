@@ -2759,8 +2759,8 @@ class Orchestrator:
                 # Phase: existing-task routing.
                 # If this ship already has an active task, auto-steer the new
                 # instruction into the running task. The TaskAgent wraps the
-                # steer with a <priority> directive on injection so it
-                # outranks the original task instruction (see
+                # steer in a task.steered event with a short priority hint so
+                # it outranks the original task instruction (see
                 # TaskAgent._inject_steering). If the active task is already
                 # finishing, the steer would race the terminal turn and
                 # silently drop — `_steer_existing_task` returns `task_closing`
@@ -3078,8 +3078,8 @@ class Orchestrator:
         if not steering_text:
             return {"success": False, "error": "Empty steering instruction"}
         # No "Steering instruction:" prefix here — TaskAgent wraps the text
-        # with a structured priority directive before injecting into LLM
-        # context (see TaskAgent._inject_steering).
+        # in a task.steered event before injecting into LLM context (see
+        # TaskAgent._inject_steering).
 
         # Pre-flight: if the target in-process TaskAgent is in a finishing
         # state, the steer would race the terminal turn and silently drop.

@@ -703,7 +703,7 @@ class TestHandleSteerTask:
         assert sent.target == "task_abc123"
         assert sent.task_id == full_id
         # No "Steering instruction:" prefix — TaskAgent wraps the raw text
-        # with a <priority> directive on injection.
+        # in a task.steered event on injection.
         assert sent.text == "Change course"
 
     async def test_steer_success_for_byoa_agent_targets_bus_name(self):

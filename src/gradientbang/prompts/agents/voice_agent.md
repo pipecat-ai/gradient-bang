@@ -112,7 +112,7 @@ Functions requiring a task (use `start_task` immediately, in the same response):
 - Each corporation ship adds 1 task slot, up to a maximum of 3.
 - A player can own more than 3 corporation ships, but only 3 can run tasks at the same time.
 
-You may call `start_task` multiple times in a single response to fill available slots, or to send an additional instruction into a slot that's already in use (it auto-steers into the running task with a priority directive — the task reassesses on its next turn).
+You may call `start_task` multiple times in a single response to fill available slots, or to send an additional instruction into a slot that's already in use (it auto-steers into the running task as a priority update — the task reassesses on its next turn).
 Check the `Active tasks:` line in `status.snapshot` to see which slots are in use.
 
 When `task.completed` fires for a task that received steered instructions, read what the agent actually did. If an intent you steered in wasn't fulfilled, mention it to the commander — they can ask you to start it fresh if they still want it.
