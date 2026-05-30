@@ -677,14 +677,10 @@ class TestSteering:
         )
         await agent.on_bus_message(msg)
 
-        # Two messages: task.steered directive header + raw steer text.
-        assert agent._llm_context.add_message.call_count == 2
-        contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
-        ]
-        assert any('<event name="task.steered">' in c for c in contents)
-        assert any(c == "Change direction" for c in contents)
+        agent._llm_context.add_message.assert_called_once()
+        content = agent._llm_context.add_message.call_args[0][0]["content"]
+        assert '<event name="task.steered">' in content
+        assert "Change direction" in content
 
     async def test_steering_for_other_target_ignored(self):
         from gradientbang.runtime.bus import BusSteerTaskMessage
@@ -973,18 +969,14 @@ class TestSyntheticProgressMessages:
         ]
         agent.queue_frame.assert_awaited_once()
 
-        # Injected as two user messages: a task.steered event header
-        # framing the next message as a priority override, then the raw
-        # steer text as a normal user message.
-        assert agent._llm_context.add_message.call_count == 2
-        directive, steer = (
-            call.args[0] for call in agent._llm_context.add_message.call_args_list
-        )
-        assert directive["role"] == "user"
-        assert directive["content"].startswith('<event name="task.steered">')
-        assert "User has steered your task" in directive["content"]
-        assert "Override and prioritize" in directive["content"]
-        assert steer == {"role": "user", "content": "Change direction"}
+        # Single user message: task.steered event with steer text inside.
+        agent._llm_context.add_message.assert_called_once()
+        injected = agent._llm_context.add_message.call_args.args[0]
+        assert injected["role"] == "user"
+        assert injected["content"].startswith('<event name="task.steered">')
+        assert "User has steered your task" in injected["content"]
+        assert "Override and prioritize" in injected["content"]
+        assert "Change direction" in injected["content"]
 
     async def test_duplicate_progress_message_is_suppressed_without_new_action_or_event(self):
         agent = _make_task_agent()

@@ -1715,20 +1715,19 @@ class TaskAgent(LLMWorker):
         cleaned = text.strip()
         if not cleaned:
             return
-        # Inject as two messages: a task.steered event header that frames
-        # the next user message as a priority override, then the raw steer
-        # text as a normal user message. The original task description is
-        # itself a plain user message, so without the directive header the
-        # steer would just be another peer instruction.
-        directive_xml = (
+        # Single user message: task.steered event with the steer text inside.
+        # Same event-xml shape as task.progress / task.cancelled the agent
+        # already reads. The directive line tells the LLM to prioritize this
+        # over its original task instruction (which is itself a plain user
+        # message — no priority signal without this wrap).
+        steered_xml = (
             '<event name="task.steered">\n'
-            "User has steered your task. Override and prioritize your "
-            "current plan with the instruction below.\n"
+            "User has steered your task. Override and prioritize your current "
+            f"plan with the instruction below.\n{cleaned}"
             "</event>"
         )
         if self._llm_context is not None:
-            self._llm_context.add_message({"role": "user", "content": directive_xml})
-            self._llm_context.add_message({"role": "user", "content": cleaned})
+            self._llm_context.add_message({"role": "user", "content": steered_xml})
         self._output(cleaned, TaskOutputType.INPUT)
 
         # Interrupt idle wait so the LLM can act on steering immediately
