@@ -43,6 +43,7 @@ from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultProperties,
     FunctionCallsStartedFrame,
+    InterruptionTaskFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMRunFrame,
@@ -53,6 +54,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.job_context import JobStatus
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -70,6 +72,7 @@ from gradientbang.runtime.bus import (
     BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
+    BusCombatWakeMessage,
     BusCorporationQueryRequest,
     BusCorporationQueryResponse,
     BusGameEventMessage,
@@ -80,6 +83,13 @@ from gradientbang.runtime.bus import (
     PendingRequests,
 )
 from gradientbang.runtime.tool_schema import GAME_METHOD_ALIASES, TASK_TOOLS
+from gradientbang.utils.combat import (
+    COMBAT_EVENT_NAMES,
+    combat_id_from_payload,
+    is_combat_participant,
+    own_ship_id_from_participants,
+    should_inject_combat_preamble,
+)
 from gradientbang.utils.event_ordering import (
     extract_event_id,
     sort_by_event_id_preserving_no_id_positions,
@@ -342,10 +352,12 @@ class TaskAgent(LLMWorker):
         self._finish_emitted: bool = False
         self._task_start_monotonic: Optional[float] = None
         self._step_counter: int = 0
+        self._task_generation: int = 0
 
         # ── Inference state ──
         self._llm_inflight: bool = False
         self._tool_call_in_progress: bool = False
+        self._drop_tool_calls_until_next_response_start: bool = False
         self._inference_reasons: List[str] = []
         self._inference_watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._awaiting_completion_event: Optional[str] = None
@@ -375,12 +387,11 @@ class TaskAgent(LLMWorker):
         self._last_context_dump: Optional[List[Dict[str, Any]]] = None
 
         # ── Combat preamble tracking ──
-        # Mirrors EventRelay: combat.md is loaded at most once per agent
-        # lifetime; doctrine is re-fetched every combat. Both land in
-        # context ahead of the round-1 combat.round_waiting event so the
-        # agent always reasons about the fight with mechanics + doctrine
-        # already in view.
+        # Mirrors EventRelay: combat.md is loaded once per task context;
+        # doctrine is re-fetched for each encounter. Both land ahead of the
+        # first combat.round_waiting event this task sees.
         self._combat_md_loaded = False
+        self._combat_preamble_combat_ids: set[str] = set()
 
     # ── LLM setup ─────────────────────────────────────────────────────
 
@@ -566,6 +577,11 @@ class TaskAgent(LLMWorker):
                 return
             if self._active_task_id and message.task_id == self._active_task_id:
                 await self._inject_steering(message.text)
+        elif isinstance(message, BusCombatWakeMessage):
+            if message.target and message.target != self.name:
+                return
+            if self._active_task_id and message.task_id == self._active_task_id:
+                await self._wake_for_combat(message.goal, message.context)
         elif isinstance(
             message,
             (
@@ -817,19 +833,13 @@ class TaskAgent(LLMWorker):
             # Without this, a corp ship in combat sees no round_waiting /
             # round_resolved / ship.destroyed for itself and gets stuck.
             event_name = event.get("event_name")
-            if self._character_id and event_name in {
-                "combat.round_waiting",
-                "combat.round_resolved",
-                "combat.ended",
-                "combat.action_accepted",
-                "combat.round_timeout",
-            }:
-                participants = payload.get("participants")
-                if isinstance(participants, list):
-                    for p in participants:
-                        if isinstance(p, dict) and p.get("id") == self._character_id:
-                            await self._handle_event(event)
-                            return
+            if (
+                self._character_id
+                and event_name in COMBAT_EVENT_NAMES
+                and is_combat_participant(payload, self._character_id)
+            ):
+                await self._handle_event(event)
+                return
             if self._character_id and event_name in {
                 "ship.destroyed",
                 "garrison.destroyed",
@@ -858,6 +868,7 @@ class TaskAgent(LLMWorker):
     # ── Task state management ─────────────────────────────────────────
 
     def _reset_task_state(self):
+        self._task_generation += 1
         # New task arrived — the idle teardown timer must not fire now,
         # even if it was scheduled. _complete_task will re-arm later.
         self._cancel_idle_teardown()
@@ -890,6 +901,7 @@ class TaskAgent(LLMWorker):
         self._no_tool_nudge_count = 0
         self._tool_call_in_progress = False
         self._llm_inflight = False
+        self._drop_tool_calls_until_next_response_start = False
         self._awaiting_completion_event = None
         self._awaiting_completion_request_id = None
         self._idle_wait_event = None
@@ -899,6 +911,8 @@ class TaskAgent(LLMWorker):
         self._last_synthetic_progress_message = None
         self._last_synthetic_progress_epoch = -1
         self._last_handled_event_id = None
+        self._combat_md_loaded = False
+        self._combat_preamble_combat_ids.clear()
         self._clear_game_event_queue()
         self._cancel_timers()
 
@@ -1012,45 +1026,24 @@ class TaskAgent(LLMWorker):
         more reliable ship_id than the latest status snapshot, which may
         not have fired before combat entry.
         """
-        participants = payload.get("participants")
-        if not isinstance(participants, list):
-            return None
-        for p in participants:
-            if not isinstance(p, Mapping):
-                continue
-            if p.get("id") != self._character_id:
-                continue
-            for source in (p, p.get("ship")):
-                if not isinstance(source, Mapping):
-                    continue
-                ship_id = source.get("ship_id")
-                if isinstance(ship_id, str) and ship_id.strip():
-                    return ship_id.strip()
-        return None
+        return own_ship_id_from_participants(payload, self._character_id)
 
     async def _maybe_inject_combat_preamble(self, event_name: Optional[str], payload: Any) -> None:
-        """Prepend combat.md + doctrine ahead of round-1 combat entry.
+        """Prepend combat.md + doctrine ahead of the first seen round event.
 
         Mirrors ``EventRelay._inject_combat_preamble`` for the player
         player voice runtime: every ship — corp ship or player ship — enters
         combat with full mechanics + its authored doctrine in context,
         in the fixed order ``combat.md → doctrine → event``. Strategy
         is re-fetched every combat (may have changed); combat.md is
-        loaded at most once per agent lifetime.
+        loaded whenever this task's context has been reset.
         """
-        if event_name != "combat.round_waiting":
+        if not should_inject_combat_preamble(event_name, payload, self._character_id):
             return
         if not isinstance(payload, Mapping):
             return
-        if payload.get("round") != 1:
-            return
-        # Only fire when *this* agent's ship is in the fight. A corp-ship
-        # task agent shouldn't load combat.md just because some other
-        # corp ship in the sector is fighting.
-        participants = payload.get("participants")
-        if not isinstance(participants, list) or not any(
-            isinstance(p, Mapping) and p.get("id") == self._character_id for p in participants
-        ):
+        combat_id = combat_id_from_payload(payload) or "__unknown__"
+        if combat_id in self._combat_preamble_combat_ids:
             return
         if self._llm_context is None:
             return
@@ -1086,6 +1079,7 @@ class TaskAgent(LLMWorker):
             logger.warning("task_agent.combat_preamble.render_failed", exc_info=True)
             return
         self._llm_context.add_message({"role": "user", "content": content})
+        self._combat_preamble_combat_ids.add(combat_id)
 
     # ── Event handling ────────────────────────────────────────────────
 
@@ -1229,12 +1223,19 @@ class TaskAgent(LLMWorker):
     async def _handle_function_call(self, params: FunctionCallParams) -> None:
         tool_name = params.function_name
         arguments = params.arguments or {}
+        task_generation = self._task_generation
 
         # If cancel has fired, discard any still-in-flight tool calls
         # emitted by a stream that hadn't finished when cancel arrived.
         if self._cancelled:
             await params.result_callback(
                 {"error": "Task cancelled"},
+                properties=FunctionCallResultProperties(run_llm=False),
+            )
+            return
+        if self._drop_tool_calls_until_next_response_start:
+            await params.result_callback(
+                {"error": "Task preempted by combat"},
                 properties=FunctionCallResultProperties(run_llm=False),
             )
             return
@@ -1311,7 +1312,16 @@ class TaskAgent(LLMWorker):
                     del self._skip_context_events[sync_event_to_skip]
             error_payload = {"error": str(exc)}
         finally:
-            self._tool_call_in_progress = False
+            if task_generation == self._task_generation:
+                self._tool_call_in_progress = False
+
+        if task_generation != self._task_generation:
+            with suppress(Exception):
+                await params.result_callback(
+                    {"error": "Task preempted"},
+                    properties=FunctionCallResultProperties(run_llm=False),
+                )
+            return
 
         if error_payload is not None:
             await params.result_callback(
@@ -1327,6 +1337,7 @@ class TaskAgent(LLMWorker):
         await self._on_tool_call_completed(tool_name, result_payload)
 
     async def _handle_finished_tool(self, params: FunctionCallParams):
+        task_generation = self._task_generation
         args = params.arguments or {}
         self._task_finished = True
         self._task_finished_message = args.get("message", "Done")
@@ -1346,6 +1357,9 @@ class TaskAgent(LLMWorker):
             {"status": status, "message": self._task_finished_message},
             properties=FunctionCallResultProperties(run_llm=False),
         )
+
+        if task_generation != self._task_generation:
+            return
 
         # Emit task.finish game event
         if self._active_task_id and not self._finish_emitted:
@@ -1448,6 +1462,7 @@ class TaskAgent(LLMWorker):
         the LLM service, not that the API returned data. The actual API timing
         is logged by OpenAIResponsesLLMService (stream opened / first event).
         """
+        self._drop_tool_calls_until_next_response_start = False
         if self._inference_dispatch_time is not None:
             elapsed = time.perf_counter() - self._inference_dispatch_time
             logger.info(
@@ -1710,6 +1725,59 @@ class TaskAgent(LLMWorker):
         await self._fail_task_once(self._pipeline_failure_message(error))
 
     # ── Steering ──────────────────────────────────────────────────────
+
+    async def _interrupt_current_work(self) -> None:
+        """Ask Pipecat to interrupt any active LLM/tool processing now."""
+        self._drop_tool_calls_until_next_response_start = True
+        try:
+            await PipelineWorker.queue_frame(
+                self,
+                InterruptionTaskFrame(),
+                FrameDirection.UPSTREAM,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("TaskAgent '{}': interruption frame failed: {}", self.name, exc)
+
+    async def _wake_for_combat(self, goal: str, context: str = "") -> None:
+        cleaned_goal = goal.strip()
+        if not cleaned_goal:
+            return
+
+        task_id = self._active_task_id
+        requester = self._task_requester
+        task_metadata = dict(self._task_metadata or {})
+
+        await self._interrupt_current_work()
+        self._reset_task_state()
+
+        self._active_task_id = task_id
+        self._task_requester = requester
+        self._task_description = cleaned_goal
+        self._task_metadata = task_metadata
+        self._task_start_monotonic = time.perf_counter()
+        self._drop_tool_calls_until_next_response_start = True
+
+        messages = [
+            {
+                "role": "system",
+                "content": build_task_agent_prompt(custom_prompt=self._custom_prompt),
+            },
+            {
+                "role": "user",
+                "content": create_task_instruction_user_message(
+                    self._task_description,
+                    context=context,
+                    is_corp_ship=self._is_corp_ship,
+                    task_metadata=self._task_metadata,
+                ),
+            },
+        ]
+        if self._llm_context is not None:
+            self._llm_context.set_messages(messages)
+
+        # Do not run inference here: the next live combat.round_waiting event
+        # injects combat.md + doctrine first, then schedules the combat turn.
+        self._output(cleaned_goal, TaskOutputType.INPUT)
 
     async def _inject_steering(self, text: str) -> None:
         cleaned = text.strip()

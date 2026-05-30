@@ -14,6 +14,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, replace
 from functools import wraps
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from loguru import logger
@@ -65,6 +66,7 @@ from gradientbang.runtime.bus import (
     BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
+    BusCombatWakeMessage,
     BusCorporationQueryRequest,
     BusCorporationQueryResponse,
     BusGameEventMessage,
@@ -92,6 +94,11 @@ from gradientbang.utils.formatting import (
     summarize_corporation_info,
     summarize_leaderboard,
     summarize_ship_definitions,
+)
+from gradientbang.utils.combat import (
+    build_combat_task_description,
+    is_combat_participant,
+    owned_corp_ship_participant_ids,
 )
 from gradientbang.utils.summary_formatters import list_known_ports_summary
 from gradientbang.utils.prompt_loader import (
@@ -1743,16 +1750,24 @@ class Orchestrator:
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
     ) -> None:
         """Broadcast a game event to the bus for TaskAgent children."""
+        event_name = event.get("event_name")
+
+        # Corp combat outranks the current task. Send the wake before the
+        # event broadcast; idle ships take the normal start_task path and act
+        # on the next live combat event.
+        if event_name == "combat.round_waiting":
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                await self._wake_corp_ship_tasks_for_combat(payload)
+
         await self.send_bus_message(
             BusGameEventMessage(
                 source=self.name, event=event, voice_agent_originated=voice_agent_originated
             )
         )
 
-        event_name = event.get("event_name")
-
         # Cancel player ship tasks when the player enters combat.
-        # Corp ship tasks continue running — they're independent.
+        # Corp ships were handled above by waking/starting combat work.
         if event_name == "combat.round_waiting":
             payload = event.get("payload")
             if isinstance(payload, dict) and self._is_player_combat_participant(payload):
@@ -1768,12 +1783,67 @@ class Orchestrator:
 
     def _is_player_combat_participant(self, payload: dict) -> bool:
         """Check if our character is listed in the combat participants."""
-        participants = payload.get("participants")
-        if isinstance(participants, list):
-            for p in participants:
-                if isinstance(p, dict) and p.get("id") == self._character_id:
-                    return True
-        return False
+        return is_combat_participant(payload, self._character_id)
+
+    async def _wake_corp_ship_tasks_for_combat(self, payload: dict) -> None:
+        """Wake or start owned corp ships that are participants in round one."""
+        if payload.get("round") not in (1, "1"):
+            return
+        for ship_character_id in owned_corp_ship_participant_ids(
+            payload, self._game_client.corporation_id
+        ):
+            await self._wake_or_start_corp_ship_combat_task(ship_character_id, payload)
+
+    async def _wake_or_start_corp_ship_combat_task(
+        self, ship_character_id: str, payload: dict
+    ) -> None:
+        goal = build_combat_task_description(payload, ship_character_id)
+        combat_id = payload.get("combat_id") or payload.get("encounter_id") or "unknown"
+        context = (
+            "Combat response task. Existing combat prompt and ship doctrine will be "
+            "loaded when a combat.round_waiting event is processed.\n"
+            f"combat_id: {combat_id}"
+        )
+
+        if ship_character_id in self._locked_ships:
+            target = self._find_steer_target_by_ship(ship_character_id)
+            if target is None:
+                logger.debug(
+                    "combat_wake.locked_without_target ship={}",
+                    ship_character_id[:8],
+                )
+                return
+            await self.send_bus_message(
+                BusCombatWakeMessage(
+                    source=self.name,
+                    target=target.agent_name,
+                    task_id=target.framework_task_id,
+                    goal=goal,
+                    context=context,
+                )
+            )
+            await self._task_output_handler(
+                goal,
+                message_type="COMBAT",
+                task_id=target.framework_task_id,
+                task_type=target.task_type,
+            )
+            return
+
+        params = SimpleNamespace(
+            arguments={
+                "task_description": goal,
+                "context": context,
+                "ship_id": ship_character_id,
+            }
+        )
+        result = await self._handle_start_task(params)  # type: ignore[arg-type]
+        if not result.get("success"):
+            logger.warning(
+                "combat_wake.start_failed ship={} error={}",
+                ship_character_id[:8],
+                result.get("error") or result,
+            )
 
     async def _cancel_player_tasks_for_combat(self) -> None:
         """Cancel all active player ship tasks (not corp ship tasks)."""

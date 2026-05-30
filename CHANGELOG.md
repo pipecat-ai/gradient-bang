@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Corp-ship combat now preempts normal task work by waking active TaskAgents into a combat goal or starting an idle ship task through the normal task path, while preserving the existing combat prompt and doctrine injection flow.
+
 ### Fixed
 
 - `TaskAgent._inject_steering` now injects steer text as a single `<event name="task.steered">` user message with a short priority line followed by the raw steer text inline. Same event-xml shape as `task.progress` / `task.cancelled` the agent already reads — without it, the steer was just another peer instruction to the original task description (which is itself a plain user message). Orchestrator side drops its now-redundant `"Steering instruction: "` text prefix.

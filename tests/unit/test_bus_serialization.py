@@ -18,6 +18,7 @@ from gradientbang.runtime.bus import (
     BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
+    BusCombatWakeMessage,
     BusCorporationQueryRequest,
     BusCorporationQueryResponse,
     BusGameEventMessage,
@@ -42,6 +43,13 @@ def _samples():
         target=TARGET,
         task_id="t-1",
         text="head to 7,8",
+    )
+    yield BusCombatWakeMessage(
+        source=SOURCE,
+        target=TARGET,
+        task_id="t-1",
+        goal="Fight this encounter now.",
+        context="combat_id: cbt-1",
     )
     yield BusGameToolCallRequest(
         source=TARGET,

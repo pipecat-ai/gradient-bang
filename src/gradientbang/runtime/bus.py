@@ -123,6 +123,20 @@ class BusSteerTaskMessage(BusDataMessage):
     text: str = ""
 
 
+@dataclass
+class BusCombatWakeMessage(BusDataMessage):
+    """Urgent combat reprioritization for a running task agent.
+
+    The task id stays the same; the worker drops its current LLM context and
+    treats ``goal`` as the new task instruction. Combat.md and doctrine still
+    load from the next matching ``combat.round_waiting`` event.
+    """
+
+    task_id: str = ""
+    goal: str = ""
+    context: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Typed game RPCs over the bus
 # ---------------------------------------------------------------------------

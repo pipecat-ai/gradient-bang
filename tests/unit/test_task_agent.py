@@ -699,6 +699,54 @@ class TestSteering:
 
         agent._llm_context.add_message.assert_not_called()
 
+    async def test_combat_wake_resets_context_for_same_task(self):
+        from gradientbang.runtime.bus import BusCombatWakeMessage
+
+        agent = _make_task_agent(is_corp_ship=True, character_id="ship-1")
+        agent._active_task_id = "task-1"
+        agent._task_requester = "voice"
+        agent._task_description = "haul cargo"
+        agent._llm_context.add_message({"role": "user", "content": "old context"})
+
+        with patch.object(agent, "_interrupt_current_work", new_callable=AsyncMock):
+            await agent.on_bus_message(
+                BusCombatWakeMessage(
+                    source="voice",
+                    target=agent.name,
+                    task_id="task-1",
+                    goal="Combat has started. Fight now.",
+                    context="combat_id: cbt-1",
+                )
+            )
+
+        assert agent._active_task_id == "task-1"
+        assert agent._task_description == "Combat has started. Fight now."
+        assert agent._combat_md_loaded is False
+        messages = agent._llm_context.get_messages()
+        assert len(messages) == 2
+        assert "old context" not in str(messages)
+        assert "Combat has started. Fight now." in messages[1]["content"]
+        assert "combat_id: cbt-1" in messages[1]["content"]
+        assert agent._drop_tool_calls_until_next_response_start is True
+
+    async def test_combat_wake_for_other_task_ignored(self):
+        from gradientbang.runtime.bus import BusCombatWakeMessage
+
+        agent = _make_task_agent(is_corp_ship=True, character_id="ship-1")
+        agent._active_task_id = "task-1"
+        agent._llm_context = MagicMock()
+
+        await agent.on_bus_message(
+            BusCombatWakeMessage(
+                source="voice",
+                target=agent.name,
+                task_id="task-2",
+                goal="Fight now.",
+            )
+        )
+
+        agent._llm_context.set_messages.assert_not_called()
+
 
 @pytest.mark.unit
 class TestCancellation:
@@ -1167,17 +1215,17 @@ class TestPipelineErrorFailureHandling:
 
 @pytest.mark.unit
 class TestCombatPreamble:
-    """Round-1 combat.round_waiting prepends combat.md + ship doctrine to
+    """The first combat.round_waiting per encounter prepends combat.md + doctrine to
     the TaskAgent's LLM context — same fixed order the player orchestrator
     uses in EventRelay (combat.md → doctrine → event XML). Applies to both
     corp ships and player ship task agents."""
 
     @staticmethod
-    def _round_waiting(round_num: int = 1) -> dict:
+    def _round_waiting(round_num: int = 1, combat_id: str = "cbt-1") -> dict:
         return {
             "event_name": "combat.round_waiting",
             "payload": {
-                "combat_id": "cbt-1",
+                "combat_id": combat_id,
                 "round": round_num,
                 "sector": {"id": 42},
                 "participants": [
@@ -1238,7 +1286,7 @@ class TestCombatPreamble:
 
         # Second combat in the same agent lifetime — combat.md is silent
         # but doctrine still re-fetches (strategy may have been edited).
-        await agent._handle_event(self._round_waiting(round_num=1))
+        await agent._handle_event(self._round_waiting(round_num=1, combat_id="cbt-2"))
         contents = [
             call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
@@ -1247,9 +1295,11 @@ class TestCombatPreamble:
         assert "<event name=combat.round_waiting>" in contents[1]
         assert agent._game_client.combat_get_strategy.await_count == 2
 
-    async def test_round2_does_not_inject_preamble(self):
+    async def test_same_combat_id_does_not_reinject_preamble(self):
         agent = self._agent_with_context()
-        await agent._handle_event(self._round_waiting(round_num=2))
+        await agent._handle_event(self._round_waiting(round_num=1, combat_id="cbt-1"))
+        agent._llm_context.add_message.reset_mock()
+        await agent._handle_event(self._round_waiting(round_num=2, combat_id="cbt-1"))
 
         contents = [
             call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
@@ -1257,7 +1307,19 @@ class TestCombatPreamble:
         # Only the event XML — no preamble pieces.
         assert len(contents) == 1
         assert "<event name=combat.round_waiting>" in contents[0]
-        agent._game_client.combat_get_strategy.assert_not_awaited()
+
+    async def test_round2_can_inject_when_it_is_the_first_seen_round(self):
+        agent = self._agent_with_context()
+        await agent._handle_event(self._round_waiting(round_num=2))
+
+        contents = [
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
+        ]
+        assert len(contents) == 3
+        assert contents[0].startswith("# Combat reference")
+        assert contents[1].startswith("# Your ship's combat strategy")
+        assert "<event name=combat.round_waiting>" in contents[2]
+        agent._game_client.combat_get_strategy.assert_awaited_once()
 
     async def test_observer_does_not_inject_preamble(self):
         # This agent's character is NOT a participant — the corp ship in
