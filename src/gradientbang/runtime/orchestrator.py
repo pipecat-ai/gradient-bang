@@ -1921,21 +1921,6 @@ class Orchestrator:
                     )
         return None
 
-    def _active_task_description_for(self, target: _SteerTarget) -> Optional[str]:
-        """Return the active task's description for `target`, or None.
-
-        Used by the busy-ship branch of `_handle_start_task` to feed the LLM
-        enough context to decide refine-vs-wait without an extra round-trip.
-        """
-        for c in self._children:
-            if isinstance(c, TaskAgent) and c.name == target.agent_name:
-                return c._task_description
-        ctx = self._byoa.get_active(target.agent_name)
-        if ctx:
-            desc = ctx.get("task_description")
-            return desc if isinstance(desc, str) else None
-        return None
-
     def _find_steer_target_by_task_id(self, task_id: str) -> Optional[_SteerTarget]:
         """Resolve a task id/prefix to the bus agent that should receive steering."""
         cleaned = task_id.strip()
@@ -2135,16 +2120,12 @@ class Orchestrator:
             task_metadata = payload.get("task_metadata") if isinstance(payload, dict) else None
             task_metadata = task_metadata if isinstance(task_metadata, dict) else {}
             actor = task_metadata.get("actor_character_id")
-            task_description = (
-                payload.get("task_description") if isinstance(payload, dict) else None
-            )
             self._byoa.register_active(
                 data.worker_name,
                 framework_task_id=framework_task_id,
                 character_id=target_character_id,
                 actor_character_id=actor if isinstance(actor, str) else "",
                 task_metadata=task_metadata,
-                task_description=task_description if isinstance(task_description, str) else None,
             )
         try:
             await self._dispatch_task_with_id(
@@ -2731,46 +2712,48 @@ class Orchestrator:
                 target_character_id = ship_id if ship_id else self._character_id
 
                 # Phase: existing-task routing.
-                # If this ship already has an active task, return a structured
-                # ship_busy result so the LLM can decide: silently call
-                # steer_task with current_task_id (refinement), wait for
-                # task.completed before re-issuing start_task (separate
-                # action), or ask the commander when unsure. Auto-steering
-                # here silently drops distinct new requests and races a
-                # task's terminal turn.
+                # If this ship already has an active task, auto-steer the new
+                # instruction into the running task. The TaskAgent wraps the
+                # steer with a <priority> directive on injection so it
+                # outranks the original task instruction (see
+                # TaskAgent._inject_steering). If the active task is already
+                # finishing, the steer would race the terminal turn and
+                # silently drop — `_steer_existing_task` detects that and
+                # returns `task_closing`, which we translate to `ship_busy`
+                # so the voice LLM chains a fresh start_task.
                 if target_character_id in self._locked_ships:
                     active_target = self._find_steer_target_by_ship(target_character_id)
-                    current_task_id = (
-                        active_target.framework_task_id if active_target else None
-                    )
-                    current_task_type = active_target.task_type if active_target else None
-                    current_task_description = (
-                        self._active_task_description_for(active_target)
-                        if active_target
-                        else None
-                    )
-                    short_id = current_task_id[:8] if current_task_id else "unknown"
-                    desc_clause = (
-                        f" ({current_task_description!r})" if current_task_description else ""
-                    )
+                    if active_target is not None:
+                        steer_text = task_desc
+                        if isinstance(explicit_context, str) and explicit_context.strip():
+                            steer_text = f"{task_desc}\n\nContext: {explicit_context.strip()}"
+                        steer_result = await self._steer_existing_task(
+                            active_target,
+                            steer_text,
+                            summary="Task already running; steered with new instructions.",
+                        )
+                        if steer_result.get("error") == "task_closing":
+                            return {
+                                "success": False,
+                                "error": "ship_busy",
+                                "message": (
+                                    "Active task was finishing; re-issue start_task — "
+                                    "the slot should now be free."
+                                ),
+                                "suggested_action": "Call start_task again.",
+                                "ship_character_id": target_character_id,
+                                "current_task_id": active_target.framework_task_id,
+                            }
+                        return steer_result
+                    # Lock is held but the active child is unavailable.
                     return {
                         "success": False,
                         "error": "ship_busy",
                         "message": (
-                            f"Ship slot is busy with active task {short_id}{desc_clause}. "
-                            "To REFINE that task, call steer_task with "
-                            f"task_id={current_task_id} and your new instruction. "
-                            "To start a SEPARATE new task on this ship, wait for "
-                            "task.completed before calling start_task again."
-                        ),
-                        "suggested_action": (
-                            "Call steer_task(task_id, message) to refine the running task, "
-                            "or wait for task.completed before calling start_task."
+                            f"Ship {target_character_id[:8]}... lock is held but no active "
+                            "task agent is reachable. Try stop_task or wait."
                         ),
                         "ship_character_id": target_character_id,
-                        "current_task_id": current_task_id,
-                        "current_task_type": current_task_type,
-                        "current_task_description": current_task_description,
                     }
 
                 # Phase: policy checks.
@@ -3301,6 +3284,7 @@ class Orchestrator:
         )
         task_id = str(result.get("task_id", "")).strip()
         task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
+        steered = bool(result.get("steered"))
         ship_character_id = result.get("ship_character_id")
         summary = (
             str(result.get("message") or result.get("summary") or "Task started").strip()
@@ -3314,7 +3298,8 @@ class Orchestrator:
         if isinstance(ship_character_id, str) and ship_character_id:
             await self._silent_flush_for_ship(ship_character_id)
 
-        attrs = ['name="task.started"']
+        event_name = "task.steered" if steered else "task.started"
+        attrs = [f'name="{event_name}"']
         if task_id:
             attrs.append(f'task_id="{task_id}"')
         attrs.append(f'task_type="{task_type}"')

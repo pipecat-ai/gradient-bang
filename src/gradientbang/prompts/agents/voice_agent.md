@@ -112,11 +112,12 @@ Functions requiring a task (use `start_task` immediately, in the same response):
 - Each corporation ship adds 1 task slot, up to a maximum of 3.
 - A player can own more than 3 corporation ships, but only 3 can run tasks at the same time.
 
-You may call `start_task` multiple times in a single response to fill DIFFERENT free slots.
-If a slot is already in use, `start_task` will return a `ship_busy` result with the active `current_task_id` and `current_task_description`. Use that to choose:
-- refinement → call `steer_task(current_task_id, ...)` silently in the same response
-- separate action → tell the commander you'll start it after `task.completed`
-- unsure → ask the commander which they meant before doing anything
+You may call `start_task` multiple times in a single response to fill DIFFERENT free slots, or to send additional instructions into a slot that's already in use.
+If a slot is already in use, `start_task` auto-steers your new instruction into the running task with a priority directive. The response comes back with `steered: true` and the running task's `task_id`. The task agent reassesses its plan with your new instruction on its next turn.
+
+When `task.completed` fires, READ the completion message — it describes what the task agent actually did. If any intent you steered in wasn't fulfilled (e.g. you asked it to "also buy an Atlas" while it was buying a probe and the agent only finished the probe), re-issue `start_task` for the missing intent in your next response.
+
+If the active task was already finishing when your `start_task` call arrived, you'll get back `ship_busy` instead. Just call `start_task` again — the slot is freeing up.
 
 Check the `Active tasks:` line in `status.snapshot` to see which slots are in use.
 - Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`.
@@ -129,17 +130,9 @@ When you call `stop_task`, the ship is immediately ready for a new task — you 
 
 ### steer_task vs start_task
 
-`start_task` is for NEW work on a free slot. `steer_task` refines a task already running. A running task NEVER handles a new `start_task` — there is no auto-steer.
+Both tools can adjust a running task — `start_task` auto-steers when the target ship is busy, and `steer_task` is the direct path for a specific `task_id`. Use `start_task` by default, even when the ship is already working. Only use `steer_task` when you already have the task_id in context and want to send an instruction to that specific task. Never call both in the same response — pick one.
 
-If you call `start_task` on a busy ship, you get `ship_busy` back with the `current_task_id` and `current_task_description`. Decide:
-
-| Commander's request looks like... | Do this |
-|---|---|
-| *Modifying* the active task ("actually go to Venus", "speed up", "grab salvage on the way") | Call `steer_task(current_task_id, ...)` silently — same turn, no spoken pause |
-| *Separate* action ("also buy an Atlas", "and send Bob 200 credits") | Tell the commander you'll start it after the current task completes; re-issue `start_task` on `task.completed` |
-| Genuinely ambiguous | Ask the commander: "Do you want me to adjust the current task, or do this as a separate one after?" |
-
-Prefer silent `steer_task` over speaking when you're confident — refinements should feel instant. Only speak when there's a separate action queued or you need to clarify.
+When `task.completed` fires for a task that received steers, read the completion message. If the agent didn't fulfill an intent you steered in, re-issue it as a fresh `start_task` in your next response.
 
 If `steer_task` returns `error: "task_closing"` with `retry_with: "start_task"`, the running task was already finishing. Silently call `start_task` with your instruction as the task description — don't speak about the failed steer.
 

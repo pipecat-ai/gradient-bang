@@ -742,7 +742,8 @@ class TestHandleSteerTask:
         assert sent.target == byoa_name
         assert sent.task_id == full_id
 
-    async def test_start_task_busy_ship_returns_ship_busy_without_auto_steering(self):
+    async def test_start_task_busy_byoa_ship_auto_steers_existing_bus_agent(self):
+        from gradientbang.runtime.bus import BusSteerTaskMessage
         from gradientbang.runtime.orchestrator import _SteerTarget
 
         agent = _make_orchestrator()
@@ -764,27 +765,59 @@ class TestHandleSteerTask:
             "task_id": full_id,
             "character_id": ship_id,
             "actor_character_id": "char-123",
-            "task_description": "Mine salvage at sector 12",
         }
         params = MagicMock()
         params.arguments = {
             "ship_id": ship_id,
-            "task_description": "Go buy an Atlas",
+            "task_description": "Go mine the nearby salvage",
             "context": "Prefer safe routes.",
         }
 
         result = await agent._handle_start_task(params)
 
-        # No auto-steer: the busy branch must NOT collapse a new start_task
-        # into a steer of the running task. That silent drop is the bug.
+        assert result["success"] is True
+        assert result["steered"] is True
+        assert result["task_id"] == full_id
+        sent = agent.send_bus_message.call_args[0][0]
+        assert isinstance(sent, BusSteerTaskMessage)
+        assert sent.target == byoa_name
+        assert "Prefer safe routes" in sent.text
+
+    async def test_start_task_busy_closing_task_returns_ship_busy_for_chained_start(self):
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.orchestrator import _SteerTarget
+
+        agent = _make_orchestrator()
+        agent.send_bus_message = AsyncMock()
+        child = MagicMock(spec=TaskAgent)
+        child.name = "task_abc123"
+        child._is_corp_ship = False
+        child._character_id = agent._character_id
+        child._task_finished = True  # already in terminal turn
+        child._cancelled = False
+        child._finish_emitted = False
+        agent._children = [child]
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._locked_ships[agent._character_id] = full_id
+        agent._find_steer_target_by_ship = MagicMock(
+            return_value=_SteerTarget(
+                framework_task_id=full_id,
+                agent_name=child.name,
+                task_type="player_ship",
+                ship_character_id=agent._character_id,
+            )
+        )
+        params = MagicMock()
+        params.arguments = {"task_description": "Buy an Atlas"}
+
+        result = await agent._handle_start_task(params)
+
+        # Closing task can't safely absorb a steer — translate to ship_busy
+        # so the voice LLM chains a fresh start_task once the slot is free.
         assert result["success"] is False
         assert result["error"] == "ship_busy"
         assert result["current_task_id"] == full_id
-        assert result["current_task_type"] == "corp_ship"
-        assert result["current_task_description"] == "Mine salvage at sector 12"
-        assert result["ship_character_id"] == ship_id
-        assert "steer_task" in result["suggested_action"]
-        assert full_id in result["message"]
+        assert result["ship_character_id"] == agent._character_id
         agent.send_bus_message.assert_not_called()
 
     async def test_steer_on_closing_task_returns_task_closing_with_retry_directive(self):
@@ -1124,8 +1157,8 @@ class TestTaskToolWrappers:
             "success": False,
             "error": "ship_busy",
             "current_task_id": "ff3fa419-1234-5678-9abc-def012345678",
-            "current_task_description": "Buy a probe",
-            "suggested_action": "Call steer_task(task_id, message) to refine the running task, or wait for task.completed before calling start_task.",
+            "ship_character_id": "ship-xyz",
+            "message": "Active task was finishing; re-issue start_task.",
         }
         agent._handle_start_task = AsyncMock(return_value=result)
         params = _make_function_call_params(function_name="start_task", result_callback=AsyncMock())
@@ -1133,13 +1166,47 @@ class TestTaskToolWrappers:
         await agent._handle_start_task_tool(params)
 
         # Default result_callback (no FunctionCallResultProperties) lets the
-        # LLM run on its tool result so it can chain steer_task or speak.
+        # LLM run on its tool result so it can chain start_task again.
         params.result_callback.assert_awaited_once()
         assert params.result_callback.await_args.args[0] == {"result": result}
         assert "properties" not in params.result_callback.await_args.kwargs
         # No task.started/task.steered event_xml on failure — the tool result
         # is the only signal.
         assert len(agent._deferred_frames) == 0
+
+    @pytest.mark.asyncio
+    async def test_start_task_tool_steered_result_queues_steered_event(self):
+        from pipecat.frames.frames import LLMMessagesAppendFrame
+        from pipecat.processors.frame_processor import FrameDirection
+
+        agent = _make_orchestrator()
+        agent._tool_call_inflight = 1
+        result = {
+            "success": True,
+            "summary": "Task already running; steered with new instructions.",
+            "task_id": "task_abc123",
+            "task_type": "player_ship",
+            "steered": True,
+        }
+        agent._handle_start_task = AsyncMock(return_value=result)
+        params = _make_function_call_params(function_name="start_task", result_callback=AsyncMock())
+
+        await agent._handle_start_task_tool(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.await_args.args[0] == {"result": result}
+        properties = params.result_callback.await_args.kwargs["properties"]
+        assert properties.run_llm is False
+
+        assert len(agent._deferred_frames) == 1
+        deferred_frame, _ = agent._deferred_frames[0]
+        assert isinstance(deferred_frame, LLMMessagesAppendFrame)
+        assert deferred_frame.run_llm is True
+        # Auto-steered result emits task.steered, not task.started.
+        assert (
+            '<event name="task.steered" task_id="task_abc123" task_type="player_ship">'
+            in deferred_frame.messages[0]["content"]
+        )
 
     @pytest.mark.asyncio
     async def test_stop_task_tool_success_queues_cancelled_event(self):
