@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Corp-ship combat now preempts normal task work by waking active TaskAgents into a combat goal or starting an idle ship task through the normal task path, while preserving the existing combat prompt and doctrine injection flow.
+- BYOA harnesses can now customize active combat wake behavior with an `@app.on_combat_wake` hook.
 
 ### Fixed
 

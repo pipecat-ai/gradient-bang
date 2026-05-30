@@ -91,6 +91,27 @@ If attacked, flee unless the enemy is already badly damaged.
 Avoid spending fuel unless the route improves expected profit.
 ```
 
+## Combat Wake
+
+When a claimed corp ship enters combat, the bot wakes the BYOA task into a combat goal before normal event broadcast. Active agents reset their task context; idle agents start through the normal task path. The bundled combat.md and ship doctrine still load from `combat.round_waiting`, so do not duplicate them in your prompt.
+
+Use `@app.on_combat_wake` only when you need custom combat bias:
+
+```python
+from gradientbang.runtime.byoa import ByoaApp, ByoaCombatWake, ByoaContext
+
+app = ByoaApp()
+
+@app.on_combat_wake
+def combat_policy(ctx: ByoaContext, wake: ByoaCombatWake) -> ByoaCombatWake | None:
+    return ByoaCombatWake(
+        goal=f"{wake.goal}\n\nOperator preference: flee unless clearly favored.",
+        context=wake.context,
+    )
+```
+
+Return `None` to observe/log the wake without changing the default combat goal.
+
 ## Vercel
 
 Production BYOA runs through the Vercel wake receiver in [deployment/vercel](../deployment/vercel/).

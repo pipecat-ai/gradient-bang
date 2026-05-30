@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from gradientbang.runtime.byoa import ByoaApp, ByoaContext
+from gradientbang.runtime.byoa import ByoaApp, ByoaCombatWake, ByoaContext
 
 
 app = ByoaApp()
@@ -58,6 +58,28 @@ def on_session_end(ctx: ByoaContext) -> None:
         "custom_byoa.session_end ship_id={} task_id={}",
         ctx.ship_id,
         ctx.task_id,
+    )
+
+
+@app.on_combat_wake
+def on_combat_wake(ctx: ByoaContext, wake: ByoaCombatWake) -> ByoaCombatWake | None:
+    """Optionally replace the combat wake before the task context resets."""
+
+    logger.info(
+        "custom_byoa.combat_wake ship_id={} task_id={}",
+        ctx.ship_id,
+        ctx.task_id,
+    )
+
+    # Return None to use the default combat goal. Return a replacement wake
+    # when your agent should bias combat differently from the bundled prompt.
+    return ByoaCombatWake(
+        goal=(
+            f"{wake.goal}\n\n"
+            "Operator combat preference: preserve the ship first; flee if the "
+            "opponent looks stronger, otherwise brace or attack conservatively."
+        ),
+        context=wake.context,
     )
 
 

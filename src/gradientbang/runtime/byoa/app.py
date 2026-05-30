@@ -17,8 +17,9 @@ Two intended customisation modes:
   run the bundled harness unchanged.
 * **Mode B** — instantiate :class:`ByoaApp` in your own ``module:main``,
   attach lifecycle hooks via ``@app.prompt`` / ``@app.llm`` /
-  ``@app.on_session_start`` / ``@app.on_session_end``, rebind the ``byoa``
-  console script in your fork's ``pyproject.byoa.toml`` to point at it.
+  ``@app.on_session_start`` / ``@app.on_session_end`` /
+  ``@app.on_combat_wake``, rebind the ``byoa`` console script in your
+  fork's ``pyproject.byoa.toml`` to point at it.
 """
 
 from __future__ import annotations
@@ -79,6 +80,14 @@ class ByoaContext:
         )
 
 
+@dataclass(frozen=True)
+class ByoaCombatWake:
+    """Combat wake instruction before the TaskAgent resets into combat."""
+
+    goal: str
+    context: str = ""
+
+
 def _require(env_key: str) -> str:
     value = (os.environ.get(env_key) or "").strip()
     if not value:
@@ -124,6 +133,7 @@ def _load_prompt() -> Optional[str]:
 PromptHook = Callable[[ByoaContext], HookResult[Optional[str]]]
 LLMHook = Callable[[ByoaContext], HookResult[Any]]
 LifecycleHook = Callable[[ByoaContext], HookResult[None]]
+CombatWakeHook = Callable[[ByoaContext, ByoaCombatWake], HookResult[Optional[ByoaCombatWake]]]
 
 
 class ByoaApp:
@@ -153,6 +163,7 @@ class ByoaApp:
         self._llm_hook: Optional[LLMHook] = None
         self._on_session_start: Optional[LifecycleHook] = None
         self._on_session_end: Optional[LifecycleHook] = None
+        self._on_combat_wake: Optional[CombatWakeHook] = None
 
     # ── Decorators ────────────────────────────────────────────────────
 
@@ -185,6 +196,15 @@ class ByoaApp:
     def on_session_end(self, fn: LifecycleHook) -> LifecycleHook:
         """Run once after the TaskAgent stops (success or failure)."""
         self._on_session_end = fn
+        return fn
+
+    def on_combat_wake(self, fn: CombatWakeHook) -> CombatWakeHook:
+        """Run before an active task is reset into combat.
+
+        Return ``None`` to keep the default combat wake, or return a
+        :class:`ByoaCombatWake` with replacement goal/context text.
+        """
+        self._on_combat_wake = fn
         return fn
 
     # ── Entry points ──────────────────────────────────────────────────
@@ -235,10 +255,20 @@ class ByoaApp:
             bus=bus,
             handle_sigint=True,
         )
+
+        app = self
+
+        class ByoaTaskAgent(TaskAgent):
+            """TaskAgent with BYOA harness hooks wired in."""
+
+            async def _wake_for_combat(self, goal: str, context: str = "") -> None:
+                wake = await app._apply_combat_wake(ctx, goal, context)
+                await super()._wake_for_combat(wake.goal, wake.context)
+
         # TaskAgent's character_id is the SHIP's pseudo-character (the
         # subject of every game tool call). Authorization is the bus channel
         # (capability) + corp membership + ship_byoa_configure ownership.
-        agent = TaskAgent(
+        agent = ByoaTaskAgent(
             agent_name,
             character_id=ctx.ship_id,
             is_corp_ship=True,
@@ -271,6 +301,28 @@ class ByoaApp:
                 await bus.stop()
             except Exception:
                 logger.exception("byoa.app.bus.stop_failed")
+
+    async def _apply_combat_wake(
+        self, ctx: ByoaContext, goal: str, context: str
+    ) -> ByoaCombatWake:
+        """Apply the optional operator combat hook; fallback is original wake."""
+        wake = ByoaCombatWake(goal=goal, context=context)
+        if self._on_combat_wake is None:
+            return wake
+        try:
+            replacement = await _maybe_await(self._on_combat_wake, ctx, wake)
+        except Exception:
+            logger.exception("byoa.app.on_combat_wake.failed")
+            return wake
+        if replacement is None:
+            return wake
+        if isinstance(replacement, ByoaCombatWake):
+            return replacement
+        logger.warning(
+            "byoa.app.on_combat_wake.ignored invalid_return_type={}",
+            type(replacement).__name__,
+        )
+        return wake
 
 
 async def _maybe_await(fn: Callable[..., HookResult[T]], *args: Any) -> T:
@@ -306,6 +358,8 @@ def _hooks_summary(app: "ByoaApp") -> str:
         names.append("on_session_start")
     if app._on_session_end is not None:
         names.append("on_session_end")
+    if app._on_combat_wake is not None:
+        names.append("on_combat_wake")
     return " ".join(names) if names else "(none)"
 
 
