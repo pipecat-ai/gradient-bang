@@ -299,7 +299,7 @@ class BusTaskFinishNotification(BusDataMessage):
 
 
 # ---------------------------------------------------------------------------
-# Agent lifecycle handshake — see docs/setup-byoa.md.
+# Agent lifecycle handshake — see docs/byoa.md.
 # ---------------------------------------------------------------------------
 
 

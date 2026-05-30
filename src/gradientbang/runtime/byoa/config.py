@@ -9,7 +9,7 @@ window or heartbeat. Crash detection is via the BYOA presence heartbeat
 the agent broadcasts on the bus, combined with the Orchestrator's
 ``TASK_AGENT_TIMEOUT`` sanity bound.
 
-See docs/setup-byoa.md for the operator-facing env table.
+See docs/byoa.md for the operator-facing env table.
 """
 
 from __future__ import annotations
