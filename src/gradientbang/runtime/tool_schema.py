@@ -1089,10 +1089,8 @@ START_TASK = FunctionSchema(
         "Can control your own ship or a corporation ship. "
         "If a task is already running on the target ship, this call steers the "
         "existing task with the new description (priority-wrapped, so the running "
-        "task reassesses its plan with the new instruction on its next turn). When "
-        "the task completes, check what was actually done — mention any unfulfilled "
-        "steered intent to the commander. Use stop_task explicitly if you need a "
-        "clean slate."
+        "task reassesses its plan with the new instruction on its next turn). Use "
+        "stop_task explicitly if you need a clean slate."
     ),
     properties={
         "task_description": {
