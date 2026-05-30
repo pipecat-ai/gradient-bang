@@ -1203,7 +1203,7 @@ class TestTaskToolWrappers:
         assert "Task started" in deferred_frame.messages[0]["content"]
 
     @pytest.mark.asyncio
-    async def test_start_task_tool_failure_surfaces_result_without_event_injection(self):
+    async def test_start_task_tool_failure_stays_quiet(self):
         agent = _make_orchestrator()
         result = {
             "success": False,
@@ -1216,11 +1216,10 @@ class TestTaskToolWrappers:
 
         await agent._handle_start_task_tool(params)
 
-        # Default result_callback (no FunctionCallResultProperties) lets the
-        # LLM run on its tool result so it can speak the failure message.
         params.result_callback.assert_awaited_once()
         assert params.result_callback.await_args.args[0] == {"result": result}
-        assert "properties" not in params.result_callback.await_args.kwargs
+        properties = params.result_callback.await_args.kwargs["properties"]
+        assert properties.run_llm is False
         # No task.started/task.steered event_xml on failure — the tool result
         # is the only signal.
         assert len(agent._deferred_frames) == 0

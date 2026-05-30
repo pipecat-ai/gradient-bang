@@ -3309,19 +3309,12 @@ class Orchestrator:
 
     async def _handle_start_task_tool(self, params: FunctionCallParams):
         result = await self._handle_start_task(params)
-        if not result.get("success"):
-            # Surface the failure (e.g. ship_busy) so the LLM can decide its
-            # next action — call steer_task with current_task_id, tell the
-            # commander to wait, or ask for clarification. Default
-            # result_callback properties trigger the follow-up inference;
-            # no event injection or forced cycle, mirroring
-            # _handle_stop_task_tool's failure path.
-            await params.result_callback({"result": result})
-            return
         await params.result_callback(
             {"result": result},
             properties=FunctionCallResultProperties(run_llm=False),
         )
+        if not result.get("success"):
+            return
         task_id = str(result.get("task_id", "")).strip()
         task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
         steered = bool(result.get("steered"))
