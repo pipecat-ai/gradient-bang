@@ -2666,6 +2666,51 @@ class Orchestrator:
 
     @traced
     async def _handle_start_task(self, params: FunctionCallParams) -> dict:
+        """Entrypoint: tries once, waits + retries inline if the slot is closing.
+
+        The wait+retry is invisible to the LLM — only the final result
+        reaches the tool wrapper. The auto-steer in `_handle_start_task_attempt`
+        bubbles up `task_closing` when the steer would race a terminal turn;
+        here we poll for the lock to release and re-run the attempt cleanly.
+        Timeout is `settings.TASK_STEER_CLOSING_WAIT_SECONDS`.
+        """
+        result = await self._handle_start_task_attempt(params)
+        if result.get("error") != "task_closing":
+            return result
+        ship_id = result.get("ship_character_id")
+        timeout = float(settings.TASK_STEER_CLOSING_WAIT_SECONDS)
+        if isinstance(ship_id, str) and ship_id and await self._wait_for_ship_release(
+            ship_id, timeout=timeout
+        ):
+            return await self._handle_start_task_attempt(params)
+        return {
+            "success": False,
+            "error": "task_closing_timeout",
+            "message": (
+                f"Active task did not finish within {timeout:.0f}s. "
+                "Try again in a moment."
+            ),
+            "ship_character_id": ship_id,
+        }
+
+    async def _wait_for_ship_release(
+        self, ship_character_id: str, *, timeout: float
+    ) -> bool:
+        """Poll `_locked_ships` until the lock is released or `timeout` elapses.
+
+        Returns True if released. The lock is cleared by the normal
+        on_job_response / task.finish handlers, so this works for both
+        in-process and BYOA agents.
+        """
+        deadline = time.monotonic() + timeout
+        while ship_character_id in self._locked_ships:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            await asyncio.sleep(min(0.1, remaining))
+        return True
+
+    async def _handle_start_task_attempt(self, params: FunctionCallParams) -> dict:
         async with self._start_task_lock:
             agent_name = None
             target_character_id = None
@@ -2718,9 +2763,8 @@ class Orchestrator:
                 # outranks the original task instruction (see
                 # TaskAgent._inject_steering). If the active task is already
                 # finishing, the steer would race the terminal turn and
-                # silently drop — `_steer_existing_task` detects that and
-                # returns `task_closing`, which we translate to `ship_busy`
-                # so the voice LLM chains a fresh start_task.
+                # silently drop — `_steer_existing_task` returns `task_closing`
+                # and the public `_handle_start_task` waits + retries inline.
                 if target_character_id in self._locked_ships:
                     active_target = self._find_steer_target_by_ship(target_character_id)
                     if active_target is not None:
@@ -2733,16 +2777,12 @@ class Orchestrator:
                             summary="Task already running; steered with new instructions.",
                         )
                         if steer_result.get("error") == "task_closing":
+                            # Bubble up unchanged so the wrapper waits for the
+                            # slot to free up and retries cleanly.
                             return {
                                 "success": False,
-                                "error": "ship_busy",
-                                "message": (
-                                    "Active task was finishing; re-issue start_task — "
-                                    "the slot should now be free."
-                                ),
-                                "suggested_action": "Call start_task again.",
+                                "error": "task_closing",
                                 "ship_character_id": target_character_id,
-                                "current_task_id": active_target.framework_task_id,
                             }
                         return steer_result
                     # Lock is held but the active child is unavailable.

@@ -221,6 +221,14 @@ class Settings(BaseSettings):
         default=1.0,
         description="Seconds TaskAgent waits for nearby batched game events before resuming inference.",
     )
+    TASK_STEER_CLOSING_WAIT_SECONDS: float = Field(
+        default=5.0,
+        description=(
+            "Seconds start_task waits for a closing task to finish before retrying "
+            "inline. Triggered when an auto-steer races the active task's terminal "
+            "turn (LLM never sees the intermediate state)."
+        ),
+    )
 
     # ===== LLM: context summarization =====
     SUMMARIZATION_LLM_PROVIDER: str = Field(

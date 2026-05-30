@@ -783,7 +783,7 @@ class TestHandleSteerTask:
         assert sent.target == byoa_name
         assert "Prefer safe routes" in sent.text
 
-    async def test_start_task_busy_closing_task_returns_ship_busy_for_chained_start(self):
+    async def test_start_task_attempt_busy_closing_bubbles_task_closing(self):
         from gradientbang.runtime.subagents.task_agent import TaskAgent
         from gradientbang.runtime.orchestrator import _SteerTarget
 
@@ -810,15 +810,67 @@ class TestHandleSteerTask:
         params = MagicMock()
         params.arguments = {"task_description": "Buy an Atlas"}
 
-        result = await agent._handle_start_task(params)
+        # The attempt method bubbles the internal task_closing signal up to
+        # the public _handle_start_task wrapper, which will wait + retry.
+        result = await agent._handle_start_task_attempt(params)
 
-        # Closing task can't safely absorb a steer — translate to ship_busy
-        # so the voice LLM chains a fresh start_task once the slot is free.
         assert result["success"] is False
-        assert result["error"] == "ship_busy"
-        assert result["current_task_id"] == full_id
+        assert result["error"] == "task_closing"
         assert result["ship_character_id"] == agent._character_id
         agent.send_bus_message.assert_not_called()
+
+    async def test_start_task_waits_for_closing_then_retries_inline(self):
+        agent = _make_orchestrator()
+        ship_id = agent._character_id
+        success_result = {
+            "success": True,
+            "message": "Task started",
+            "task_id": "ff3fa419-1234-5678-9abc-def012345678",
+            "task_type": "player_ship",
+            "ship_character_id": ship_id,
+        }
+        attempt = AsyncMock(
+            side_effect=[
+                {"success": False, "error": "task_closing", "ship_character_id": ship_id},
+                success_result,
+            ]
+        )
+        agent._handle_start_task_attempt = attempt
+        agent._wait_for_ship_release = AsyncMock(return_value=True)
+        params = MagicMock()
+        params.arguments = {"task_description": "Buy an Atlas"}
+
+        result = await agent._handle_start_task(params)
+
+        # Inline wait+retry: LLM only ever sees the final success.
+        assert result == success_result
+        assert attempt.await_count == 2
+        agent._wait_for_ship_release.assert_awaited_once()
+
+    async def test_start_task_returns_task_closing_timeout_when_wait_expires(self):
+        agent = _make_orchestrator()
+        ship_id = agent._character_id
+        attempt = AsyncMock(
+            return_value={
+                "success": False,
+                "error": "task_closing",
+                "ship_character_id": ship_id,
+            }
+        )
+        agent._handle_start_task_attempt = attempt
+        agent._wait_for_ship_release = AsyncMock(return_value=False)
+        params = MagicMock()
+        params.arguments = {"task_description": "Buy an Atlas"}
+
+        result = await agent._handle_start_task(params)
+
+        # Timeout → surface a clear failure to the LLM via the standard
+        # failure path (no retry, no event injection).
+        assert result["success"] is False
+        assert result["error"] == "task_closing_timeout"
+        assert result["ship_character_id"] == ship_id
+        assert "did not finish" in result["message"]
+        assert attempt.await_count == 1
 
     async def test_steer_on_closing_task_returns_task_closing_with_retry_directive(self):
         from gradientbang.runtime.subagents.task_agent import TaskAgent
@@ -1155,10 +1207,9 @@ class TestTaskToolWrappers:
         agent = _make_orchestrator()
         result = {
             "success": False,
-            "error": "ship_busy",
-            "current_task_id": "ff3fa419-1234-5678-9abc-def012345678",
+            "error": "task_closing_timeout",
             "ship_character_id": "ship-xyz",
-            "message": "Active task was finishing; re-issue start_task.",
+            "message": "Active task did not finish within 5s.",
         }
         agent._handle_start_task = AsyncMock(return_value=result)
         params = _make_function_call_params(function_name="start_task", result_callback=AsyncMock())
@@ -1166,7 +1217,7 @@ class TestTaskToolWrappers:
         await agent._handle_start_task_tool(params)
 
         # Default result_callback (no FunctionCallResultProperties) lets the
-        # LLM run on its tool result so it can chain start_task again.
+        # LLM run on its tool result so it can speak the failure message.
         params.result_callback.assert_awaited_once()
         assert params.result_callback.await_args.args[0] == {"result": result}
         assert "properties" not in params.result_callback.await_args.kwargs
