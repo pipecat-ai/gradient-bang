@@ -2,7 +2,7 @@
 
 import pytest
 
-from gradientbang.byoa import ByoaAgentConfig
+from gradientbang.runtime.byoa import ByoaAgentConfig
 
 
 @pytest.mark.unit

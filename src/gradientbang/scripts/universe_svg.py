@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run python
-"""Generate an SVG map of the universe from world-data JSON."""
+"""Generate an SVG map of the universe from generated universe JSON."""
 
 from __future__ import annotations
 
@@ -7,10 +7,9 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
-from gradientbang.utils.config import get_world_data_path
-
+from gradientbang.config import settings
 
 def _load_json(path: Path) -> Dict:
     return json.loads(path.read_text())
@@ -75,12 +74,12 @@ def _safe_int(value: object) -> Optional[int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate an SVG map from world-data/universe.json."
+        description="Generate an SVG map from generated universe.json."
     )
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=None,
+        default=Path(settings.GRADIENTBANG_WORLD_DATA_DIR),
         help="Path to universe.json or directory containing it",
     )
     parser.add_argument(
@@ -101,7 +100,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    data_path = args.data_dir or get_world_data_path()
+    data_path = args.data_dir
     universe_path = data_path / "universe.json" if data_path.is_dir() else data_path
     universe = _load_json(universe_path)
 

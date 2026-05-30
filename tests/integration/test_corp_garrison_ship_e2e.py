@@ -43,7 +43,7 @@ async def edge_api(supabase_url, supabase_service_role_key):
 
 @pytest.mark.integration
 class TestCorpShipTaskIsolation:
-    """Corp ship events reach TaskAgent but don't bleed into VoiceAgent LLM."""
+    """Corp ship events reach TaskAgent but don't bleed into Orchestrator LLM."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, reset_db_with_characters, edge_api, make_game_client,
@@ -107,7 +107,7 @@ class TestCorpShipTaskIsolation:
                 f"Expected movement.complete on bus. Got: {[e.get('event_name') for e in h.bus_events]}"
             )
 
-            # VoiceAgent LLM should NOT have the movement event
+            # Orchestrator LLM should NOT have the movement event
             # (DIRECT scope, character_id != player character_id)
             movement_llm = [
                 c for c, _ in h.llm_messages if "movement.complete" in c
@@ -120,7 +120,7 @@ class TestCorpShipTaskIsolation:
             await h.stop()
 
     async def test_corp_ship_task_completion_notifies_voice_and_rtvi(self):
-        """Corp ship task completion injects into VoiceAgent LLM and RTVI with task_type='corp_ship'."""
+        """Corp ship task completion injects into Orchestrator LLM and RTVI with task_type='corp_ship'."""
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         await h.start()
         try:
@@ -134,7 +134,7 @@ class TestCorpShipTaskIsolation:
             completed = await h.wait_for_task_complete(timeout=30.0)
             assert completed, "Corp ship task did not complete within timeout"
 
-            # VoiceAgent LLM should have task.completed with corp_ship type
+            # Orchestrator LLM should have task.completed with corp_ship type
             completion_msgs = [
                 c for c, _ in h.llm_messages
                 if "task.completed" in c and 'task_type="corp_ship"' in c
@@ -169,7 +169,7 @@ class TestCorpShipTaskIsolation:
             await h.stop()
 
     async def test_corp_ship_task_cancellation_notifies_voice(self):
-        """Cancelling a corp ship task injects task.cancelled into VoiceAgent LLM."""
+        """Cancelling a corp ship task injects task.cancelled into Orchestrator LLM."""
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         await h.start()
         try:
@@ -184,24 +184,24 @@ class TestCorpShipTaskIsolation:
 
             # Poll until task group appears (pipeline build is async)
             for _ in range(40):
-                if h.voice_agent._task_groups:
+                if h.orchestrator._task_groups:
                     break
                 await asyncio.sleep(0.05)
-            assert len(h.voice_agent._task_groups) > 0, "Task should be active"
+            assert len(h.orchestrator._task_groups) > 0, "Task should be active"
 
             # Cancel the task while it's blocked on the gate.
             # task_id is now the framework UUID; pass it directly.
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_id": result["task_id"]}
             params.result_callback = AsyncMock()
-            stop_result = await h.voice_agent._handle_stop_task(params)
+            stop_result = await h.orchestrator._handle_stop_task(params)
             assert stop_result.get("success") is True, f"stop_task failed: {stop_result}"
 
             # Open the gate so cleanup can proceed
             h._task_llm_gate.set()
             await asyncio.sleep(1.0)
 
-            # VoiceAgent LLM should have task.cancelled
+            # Orchestrator LLM should have task.cancelled
             cancelled_msgs = [
                 c for c, _ in h.llm_messages if "task.cancelled" in c
             ]
@@ -254,7 +254,7 @@ class TestGarrisonCombatIsolation:
 
             await asyncio.sleep(1.0)
             await h.poll_and_feed_events()
-            assert len(h.voice_agent._task_groups) > 0, "Player task should be active"
+            assert len(h.orchestrator._task_groups) > 0, "Player task should be active"
 
             # Inject combat event for a CORP SHIP (not the player)
             corp_ship_id = str(uuid.uuid4())
@@ -266,13 +266,13 @@ class TestGarrisonCombatIsolation:
             await asyncio.sleep(0.5)
 
             # Player task should STILL be active
-            assert len(h.voice_agent._task_groups) > 0, (
+            assert len(h.orchestrator._task_groups) > 0, (
                 f"Player task should NOT be cancelled by corp ship combat. "
-                f"Active groups: {list(h.voice_agent._task_groups.keys())}"
+                f"Active groups: {list(h.orchestrator._task_groups.keys())}"
             )
 
             # Verify the check: player is NOT a participant
-            assert h.voice_agent._is_player_combat_participant(
+            assert h.orchestrator._is_player_combat_participant(
                 {"participants": [{"id": corp_ship_id}, {"id": "garrison-npc-001"}]}
             ) is False
         finally:
@@ -292,7 +292,7 @@ class TestGarrisonCombatIsolation:
 
             await asyncio.sleep(1.0)
             await h.poll_and_feed_events()
-            assert len(h.voice_agent._task_groups) > 0, "Player task should be active"
+            assert len(h.orchestrator._task_groups) > 0, "Player task should be active"
 
             # Inject combat event with PLAYER as participant
             await h.inject_combat_event(
@@ -303,12 +303,12 @@ class TestGarrisonCombatIsolation:
             await asyncio.sleep(0.5)
 
             # Player task should be cancelled
-            assert len(h.voice_agent._task_groups) == 0, (
+            assert len(h.orchestrator._task_groups) == 0, (
                 f"Player task should be cancelled by player combat. "
-                f"Active groups: {list(h.voice_agent._task_groups.keys())}"
+                f"Active groups: {list(h.orchestrator._task_groups.keys())}"
             )
 
-            # VoiceAgent LLM should have the combat event
+            # Orchestrator LLM should have the combat event
             combat_msgs = [
                 c for c, _ in h.llm_messages if "combat.round_waiting" in c
             ]
@@ -335,7 +335,7 @@ class TestShipLifecycleEvents:
         self.make_game_client = make_game_client
 
     async def test_ship_destroyed_event_reaches_rtvi_and_voice(self):
-        """ship.destroyed events reach both RTVI and VoiceAgent LLM."""
+        """ship.destroyed events reach both RTVI and Orchestrator LLM."""
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         await h.start()
         try:
@@ -362,7 +362,7 @@ class TestShipLifecycleEvents:
             # RTVI should have received the event
             assert h.rtvi_push_count > 0, "RTVI should have received ship.destroyed"
 
-            # VoiceAgent LLM should have the event (direct scope, matching character)
+            # Orchestrator LLM should have the event (direct scope, matching character)
             destroyed_msgs = [
                 c for c, _ in h.llm_messages if "ship.destroyed" in c
             ]
@@ -402,7 +402,7 @@ class TestShipLifecycleEvents:
             })
 
             # Inject corp event WITH a tracked request_id
-            h.voice_agent.track_request_id("tracked-req-002")
+            h.orchestrator.track_request_id("tracked-req-002")
             await h.relay._relay_event({
                 "event_name": "corporation.ship_purchased",
                 "request_id": "tracked-req-002",

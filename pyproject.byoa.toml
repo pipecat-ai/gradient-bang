@@ -14,17 +14,17 @@ description = "Bring-Your-Own-Agent harness for Gradient Bang."
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
-    # Pipecat core + the four Mode-A LLM providers (minimax piggy-backs on
-    # the OpenAI service via base_url so no separate extra is needed).
-    "pipecat-ai[google,anthropic,openai,runner]>=1.0",
-    "pipecat-ai-subagents[pgmq]>=0.6.0",
+    # Pipecat core + BYOA bus + the Mode-A LLM providers. MiniMax piggy-backs
+    # on the OpenAI service via base_url, so no separate extra is needed.
+    "pipecat-ai[google,anthropic,runner,pgmq]>=1.3",
     "loguru>=0.7.0",
     "python-dotenv>=1.1.1",
+    "pydantic-settings>=2,<3",
     "httpx>=0.27.0",
 ]
 
 [project.scripts]
-byoa = "gradientbang.byoa.app:main"
+byoa = "gradientbang.runtime.byoa.app:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

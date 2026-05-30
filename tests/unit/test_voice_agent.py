@@ -1,4 +1,4 @@
-"""Tests for VoiceAgent framework wiring and task management."""
+"""Tests for Orchestrator framework wiring and task management."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pipecat.services.llm_service import FunctionCallParams
 
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.utils.formatting import summarize_corporation_info, summarize_leaderboard
+from .runtime_test_helpers import make_orchestrator
 
 
-def _make_voice_agent(**overrides):
-    """Create a VoiceAgent with mock dependencies."""
+def _make_orchestrator(**overrides):
+    """Create an Orchestrator with mock dependencies."""
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.set_event_polling_scope = MagicMock()
@@ -26,14 +27,19 @@ def _make_voice_agent(**overrides):
     mock_rtvi = MagicMock()
     mock_rtvi.push_frame = AsyncMock()
 
-    kwargs = {
-        "bus": MagicMock(),
-        "game_client": mock_game_client,
-        "character_id": "char-123",
-        "rtvi_processor": mock_rtvi,
-    }
-    kwargs.update(overrides)
-    return VoiceAgent("player", **kwargs)
+    character_id = overrides.pop("character_id", "char-123")
+    rtvi = overrides.pop("rtvi", overrides.pop("rtvi_processor", mock_rtvi))
+    game_client = overrides.pop("game_client", mock_game_client)
+    event_relay = overrides.pop("event_relay", None)
+    assert not overrides, f"Unhandled overrides: {sorted(overrides)}"
+    agent = make_orchestrator(
+        game_client=game_client,
+        character_id=character_id,
+        rtvi=rtvi,
+    )
+    if event_relay is not None:
+        agent.event_relay = event_relay
+    return agent
 
 
 def _make_function_call_params(
@@ -47,6 +53,7 @@ def _make_function_call_params(
         tool_call_id="tool-call-1",
         arguments=arguments or {},
         llm=MagicMock(),
+        pipeline_worker=MagicMock(),
         context=MagicMock(),
         result_callback=result_callback or AsyncMock(),
     )
@@ -85,27 +92,21 @@ EXPECTED_TOOLS = {
 
 @pytest.mark.unit
 class TestLLMSetup:
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.create_llm_service")
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.get_voice_llm_config")
-    def test_build_llm_returns_llm(self, _mock_config, mock_create):
-        mock_llm = MagicMock()
-        mock_create.return_value = mock_llm
-        agent = _make_voice_agent()
-        assert agent.build_llm() is mock_llm
+    def test_voice_runtime_is_attached(self):
+        agent = _make_orchestrator()
+        assert agent.voice_runtime is not None
+        assert agent.voice_runtime.host is agent
 
     def test_build_tools_returns_expected_schemas(self):
-        agent = _make_voice_agent()
-        tool_names = {t.name for t in agent.build_tools()}
+        agent = _make_orchestrator()
+        tool_names = {t.name for t in agent.voice_runtime.build_tools()}
         assert tool_names == EXPECTED_TOOLS
 
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.create_llm_service")
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.get_voice_llm_config")
-    def test_build_llm_registers_all_tools(self, _mock_config, mock_create):
-        mock_llm = MagicMock()
-        mock_create.return_value = mock_llm
-        agent = _make_voice_agent()
-        agent.build_llm()
-        registered = {call.args[0] for call in mock_llm.register_function.call_args_list}
+    def test_attach_registers_all_tools(self):
+        agent = _make_orchestrator()
+        registered = {
+            call.args[0] for call in agent.voice_llm.register_function.call_args_list
+        }
         assert registered == EXPECTED_TOOLS
 
 
@@ -115,22 +116,22 @@ class TestLLMSetup:
 @pytest.mark.unit
 class TestRequestIdTracking:
     def test_track_and_check(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.track_request_id("req-1")
         assert agent.is_recent_request_id("req-1") is True
 
     def test_unknown_returns_false(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         assert agent.is_recent_request_id("unknown") is False
 
     def test_empty_ignored(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent.track_request_id("")
         agent.track_request_id(None)
         assert agent.is_recent_request_id("") is False
 
     def test_track_from_result(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._track_request_id_from_result({"request_id": "req-2"})
         assert agent.is_recent_request_id("req-2") is True
 
@@ -140,60 +141,63 @@ class TestRequestIdTracking:
 
 @pytest.mark.unit
 class TestFrameworkTaskQueries:
-    def test_is_our_task(self):
-        from pipecat_subagents.agents.base_agent import TaskGroup
+    """Lookup-logic tests for ``find_task_agent_in_groups``.
 
-        agent = _make_voice_agent()
-        agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc"})}
-        assert agent.is_our_task("tid-1") is True
-        assert agent.is_our_task("tid-unknown") is False
+    These test the pure helper directly — no ``Orchestrator`` instance and no
+    framework ``job_groups`` seeding. The class method
+    ``_find_task_agent_by_task_id`` is a thin wrapper over the helper.
+    """
 
     def test_find_task_agent_by_task_id(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.orchestrator import (
+            find_task_agent_in_groups,
+        )
+        from pipecat.pipeline.job_context import JobGroup
 
-        agent = _make_voice_agent()
         mock_child = MagicMock(spec=TaskAgent)
         mock_child.name = "task_abc123"
-        agent._children = [mock_child]
+        children = [mock_child]
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
-        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
+        groups = {full_id: JobGroup(job_id=full_id, worker_names={"task_abc123"})}
 
         # Full UUID
-        assert agent._find_task_agent_by_task_id(full_id) == (full_id, mock_child)
+        assert find_task_agent_in_groups(groups, children, full_id) == (full_id, mock_child)
         # 8-char short prefix (what the LLM commonly receives in events)
-        assert agent._find_task_agent_by_task_id("ff3fa419") == (full_id, mock_child)
+        assert find_task_agent_in_groups(groups, children, "ff3fa419") == (full_id, mock_child)
         # Even shorter prefix
-        assert agent._find_task_agent_by_task_id("ff") == (full_id, mock_child)
+        assert find_task_agent_in_groups(groups, children, "ff") == (full_id, mock_child)
         # Negatives
-        assert agent._find_task_agent_by_task_id("deadbeef") is None
-        assert agent._find_task_agent_by_task_id("") is None
-        assert agent._find_task_agent_by_task_id("   ") is None
+        assert find_task_agent_in_groups(groups, children, "deadbeef") is None
+        assert find_task_agent_in_groups(groups, children, "") is None
+        assert find_task_agent_in_groups(groups, children, "   ") is None
 
     def test_find_task_agent_by_task_id_prefers_exact_match(self):
         """When two tasks share a prefix, exact match wins over prefix match."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.orchestrator import (
+            find_task_agent_in_groups,
+        )
+        from pipecat.pipeline.job_context import JobGroup
 
-        agent = _make_voice_agent()
         c1 = MagicMock(spec=TaskAgent)
         c1.name = "task_aaa"
         c2 = MagicMock(spec=TaskAgent)
         c2.name = "task_bbb"
-        agent._children = [c1, c2]
-        agent._task_groups = {
-            "ff": TaskGroup(task_id="ff", agent_names={"task_aaa"}),
-            "ff3fa419": TaskGroup(task_id="ff3fa419", agent_names={"task_bbb"}),
+        children = [c1, c2]
+        groups = {
+            "ff": JobGroup(job_id="ff", worker_names={"task_aaa"}),
+            "ff3fa419": JobGroup(job_id="ff3fa419", worker_names={"task_bbb"}),
         }
         # Exact match on the short id resolves to its child, not the longer one.
-        assert agent._find_task_agent_by_task_id("ff") == ("ff", c1)
+        assert find_task_agent_in_groups(groups, children, "ff") == ("ff", c1)
         # Prefix-only resolves to the matching longer id.
-        assert agent._find_task_agent_by_task_id("ff3fa") == ("ff3fa419", c2)
+        assert find_task_agent_in_groups(groups, children, "ff3fa") == ("ff3fa419", c2)
 
     def test_count_active_corp_tasks(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         corp = MagicMock(spec=TaskAgent)
         corp._is_corp_ship = True
         player = MagicMock(spec=TaskAgent)
@@ -202,9 +206,9 @@ class TestFrameworkTaskQueries:
         assert agent._count_active_corp_tasks() == 1
 
     def test_update_polling_scope(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         corp = MagicMock(spec=TaskAgent)
         corp._is_corp_ship = True
         corp._character_id = "ship-1"
@@ -217,7 +221,7 @@ class TestFrameworkTaskQueries:
         )
 
     def test_update_polling_scope_no_children(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._children = []
         agent.update_polling_scope()
         agent._game_client.set_event_polling_scope.assert_called_once_with(
@@ -227,7 +231,7 @@ class TestFrameworkTaskQueries:
         )
 
     async def test_task_start_syncs_corp_ship_scope_before_lifecycle(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         calls: list[str] = []
 
         async def sync_scope():
@@ -262,7 +266,7 @@ class TestFrameworkTaskQueries:
 @pytest.mark.unit
 class TestDeferredEventBatching:
     def test_tool_call_active_property(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         assert agent.tool_call_active is False
         agent._tool_call_inflight = 1
         assert agent.tool_call_active is True
@@ -270,7 +274,7 @@ class TestDeferredEventBatching:
     async def test_defers_when_tool_active(self):
         from pipecat.frames.frames import LLMMessagesAppendFrame
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._tool_call_inflight = 1
         frame = LLMMessagesAppendFrame(
             messages=[{"role": "user", "content": "<event>test</event>"}],
@@ -284,7 +288,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True),
@@ -306,7 +310,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(messages=[{"role": "user", "content": c}], run_llm=True),
@@ -327,7 +331,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(
@@ -349,7 +353,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=False),
@@ -366,13 +370,13 @@ class TestDeferredEventBatching:
     async def test_concurrent_inject_context_coalesces_to_one_run(self):
         """N deferred run_llm=True frames -> 1 coalesced LLMRunFrame.
 
-        Deferred events are appended with run_llm stripped, then the voice agent
+        Deferred events are appended with run_llm stripped, then the orchestrator
         runs once on the flushed real data.
         """
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(
@@ -399,7 +403,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(
@@ -433,7 +437,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True),
@@ -460,7 +464,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._tool_call_inflight = 1
         frame = LLMMessagesAppendFrame(
             messages=[{"role": "user", "content": "task.completed"}], run_llm=True
@@ -477,7 +481,7 @@ class TestDeferredEventBatching:
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         frames = [
             (
                 LLMMessagesAppendFrame(
@@ -495,7 +499,7 @@ class TestDeferredEventBatching:
         """Empty deferred frames → no LLMRunFrame added by process_deferred_tool_frames."""
         from pipecat.frames.frames import LLMRunFrame
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         result = await agent.process_deferred_tool_frames([])
         runs = [f for f, _ in result if isinstance(f, LLMRunFrame)]
         assert len(runs) == 0
@@ -503,17 +507,16 @@ class TestDeferredEventBatching:
 
 @pytest.mark.unit
 class TestInjectContextManagedTask:
-    """Verify _inject_context uses create_asyncio_task (managed) rather than bare asyncio tasks."""
+    """Verify _inject_context uses create_task (managed) rather than bare asyncio tasks."""
 
     async def test_inject_context_uses_managed_task(self):
-        """_inject_context with run_llm=True creates a managed task via create_asyncio_task."""
-        agent = _make_voice_agent()
+        """_inject_context with run_llm=True creates a managed task via create_task."""
+        agent = _make_orchestrator()
 
         # Provide a mock pipeline_task so queue_frame doesn't no-op.
         agent._pipeline_task = MagicMock()
         agent._pipeline_task.queue_frame = AsyncMock()
 
-        # Provide a mock task manager so create_asyncio_task works.
         created_tasks = []
 
         def fake_create_task(coro, name):
@@ -521,9 +524,7 @@ class TestInjectContextManagedTask:
             created_tasks.append((task, name))
             return task
 
-        mock_tm = MagicMock()
-        mock_tm.create_task = fake_create_task
-        agent._task_manager = mock_tm
+        agent.create_task = fake_create_task
 
         await agent._inject_context(
             [{"role": "user", "content": "test idle report"}],
@@ -540,7 +541,7 @@ class TestInjectContextManagedTask:
 
     async def test_inject_context_no_duplicate_tasks(self):
         """Multiple rapid _inject_context calls create only one coalesced task."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._pipeline_task = MagicMock()
         agent._pipeline_task.queue_frame = AsyncMock()
 
@@ -551,9 +552,7 @@ class TestInjectContextManagedTask:
             created_tasks.append((task, name))
             return task
 
-        mock_tm = MagicMock()
-        mock_tm.create_task = fake_create_task
-        agent._task_manager = mock_tm
+        agent.create_task = fake_create_task
 
         # Call twice rapidly — second should reuse the pending flag.
         await agent._inject_context([{"role": "user", "content": "event1"}], run_llm=True)
@@ -570,11 +569,10 @@ class TestInjectContextManagedTask:
 @pytest.mark.unit
 class TestHandleStopTask:
     async def test_stop_specific_task_full_uuid(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent.cancel_task = AsyncMock()
+        agent = _make_orchestrator()
+        agent.cancel_job_group = AsyncMock()
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
@@ -582,7 +580,10 @@ class TestHandleStopTask:
         agent._children = [child]
         agent._locked_ships["corp-ship-1"] = "task-uuid"
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
-        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
+        # Bypass the lookup helper — its behavior is covered by
+        # ``TestFrameworkTaskQueries``. Here we just verify the side-effect
+        # orchestration in ``_handle_stop_task``.
+        agent._find_task_agent_by_task_id = MagicMock(return_value=(full_id, child))
         params = MagicMock()
         params.arguments = {"task_id": full_id}
         result = await agent._handle_stop_task(params)
@@ -592,18 +593,17 @@ class TestHandleStopTask:
             task_id=full_id,
             character_id=agent._character_id,
         )
-        agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
+        agent.cancel_job_group.assert_called_once_with(full_id, reason="Cancelled by user")
         # Lock must be released synchronously so a follow-up start_task in
         # the same turn can succeed.
         assert "corp-ship-1" not in agent._locked_ships
 
     async def test_stop_specific_task_short_prefix(self):
         """Regression: the LLM passes the 8-char prefix it saw in an event."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent.cancel_task = AsyncMock()
+        agent = _make_orchestrator()
+        agent.cancel_job_group = AsyncMock()
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
@@ -611,7 +611,7 @@ class TestHandleStopTask:
         agent._children = [child]
         agent._locked_ships["corp-ship-1"] = "task-uuid"
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
-        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
+        agent._find_task_agent_by_task_id = MagicMock(return_value=(full_id, child))
         params = MagicMock()
         params.arguments = {"task_id": "ff3fa419"}
         result = await agent._handle_stop_task(params)
@@ -621,22 +621,21 @@ class TestHandleStopTask:
             task_id=full_id,
             character_id=agent._character_id,
         )
-        agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
+        agent.cancel_job_group.assert_called_once_with(full_id, reason="Cancelled by user")
         assert "corp-ship-1" not in agent._locked_ships
 
     async def test_stop_player_ship_default(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent.cancel_task = AsyncMock()
+        agent = _make_orchestrator()
+        agent.cancel_job_group = AsyncMock()
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
         child._character_id = agent._character_id
         agent._children = [child]
         agent._locked_ships[agent._character_id] = "task-uuid"
-        agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc123"})}
+        agent._find_player_task = MagicMock(return_value=("tid-1", child))
         params = MagicMock()
         params.arguments = {}
         result = await agent._handle_stop_task(params)
@@ -645,11 +644,11 @@ class TestHandleStopTask:
             task_id="tid-1",
             character_id=agent._character_id,
         )
-        agent.cancel_task.assert_called_once_with("tid-1", reason="Cancelled by user")
+        agent.cancel_job_group.assert_called_once_with("tid-1", reason="Cancelled by user")
         assert agent._character_id not in agent._locked_ships
 
     async def test_stop_no_task(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._children = []
         params = MagicMock()
         params.arguments = {}
@@ -657,7 +656,7 @@ class TestHandleStopTask:
         assert result["success"] is False
 
     async def test_stop_not_found(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._children = []
         params = MagicMock()
         params.arguments = {"task_id": "nonexistent"}
@@ -668,19 +667,26 @@ class TestHandleStopTask:
 @pytest.mark.unit
 class TestHandleSteerTask:
     async def test_steer_success(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.bus import BusSteerTaskMessage
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.orchestrator import _SteerTarget
 
-        agent = _make_voice_agent()
-        agent.send_message = AsyncMock()
+        agent = _make_orchestrator()
+        agent.send_bus_message = AsyncMock()
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
         child._character_id = "ship_character_id_xyz"
         agent._children = [child]
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
-        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
+        agent._find_steer_target_by_task_id = MagicMock(
+            return_value=_SteerTarget(
+                framework_task_id=full_id,
+                agent_name=child.name,
+                task_type="player_ship",
+                ship_character_id=child._character_id,
+            )
+        )
         params = MagicMock()
         # LLM passes the short prefix from a task event
         params.arguments = {"task_id": "ff3fa419", "message": "Change course"}
@@ -689,22 +695,29 @@ class TestHandleSteerTask:
         assert result["task_id"] == full_id
         assert result["task_type"] == "player_ship"
         assert result["steered"] is True
-        sent = agent.send_message.call_args[0][0]
+        sent = agent.send_bus_message.call_args[0][0]
         assert isinstance(sent, BusSteerTaskMessage)
         assert sent.target == "task_abc123"
         assert sent.task_id == full_id
         assert sent.text.startswith("Steering instruction: ")
 
     async def test_steer_success_for_byoa_agent_targets_bus_name(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.bus import BusSteerTaskMessage
+        from gradientbang.runtime.orchestrator import _SteerTarget
 
-        agent = _make_voice_agent()
-        agent.send_message = AsyncMock()
+        agent = _make_orchestrator()
+        agent.send_bus_message = AsyncMock()
         ship_id = "550e8400-e29b-41d4-a716-446655440000"
         byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
-        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
+        agent._find_steer_target_by_task_id = MagicMock(
+            return_value=_SteerTarget(
+                framework_task_id=full_id,
+                agent_name=byoa_name,
+                task_type="corp_ship",
+                ship_character_id=ship_id,
+            )
+        )
         agent._byoa._active_agents[byoa_name] = {
             "task_id": full_id,
             "character_id": ship_id,
@@ -719,23 +732,30 @@ class TestHandleSteerTask:
         assert result["task_id"] == full_id
         assert result["task_type"] == "corp_ship"
         assert result["ship_character_id"] == ship_id
-        sent = agent.send_message.call_args[0][0]
+        sent = agent.send_bus_message.call_args[0][0]
         assert isinstance(sent, BusSteerTaskMessage)
         assert sent.target == byoa_name
         assert sent.task_id == full_id
 
     async def test_start_task_busy_byoa_ship_steers_existing_bus_agent(self):
-        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
-        from pipecat_subagents.agents.base_agent import TaskGroup
+        from gradientbang.runtime.bus import BusSteerTaskMessage
+        from gradientbang.runtime.orchestrator import _SteerTarget
 
-        agent = _make_voice_agent()
-        agent.send_message = AsyncMock()
+        agent = _make_orchestrator()
+        agent.send_bus_message = AsyncMock()
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Remote Ship"))
         ship_id = "550e8400-e29b-41d4-a716-446655440000"
         byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._locked_ships[ship_id] = full_id
-        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
+        agent._find_steer_target_by_ship = MagicMock(
+            return_value=_SteerTarget(
+                framework_task_id=full_id,
+                agent_name=byoa_name,
+                task_type="corp_ship",
+                ship_character_id=ship_id,
+            )
+        )
         agent._byoa._active_agents[byoa_name] = {
             "task_id": full_id,
             "character_id": ship_id,
@@ -753,13 +773,13 @@ class TestHandleSteerTask:
         assert result["success"] is True
         assert result["steered"] is True
         assert result["task_id"] == full_id
-        sent = agent.send_message.call_args[0][0]
+        sent = agent.send_bus_message.call_args[0][0]
         assert isinstance(sent, BusSteerTaskMessage)
         assert sent.target == byoa_name
         assert "Prefer safe routes" in sent.text
 
     async def test_steer_missing_args(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         params = MagicMock()
         params.arguments = {"task_id": "", "message": "test"}
         assert (await agent._handle_steer_task(params))["success"] is False
@@ -767,7 +787,7 @@ class TestHandleSteerTask:
         assert (await agent._handle_steer_task(params))["success"] is False
 
     async def test_steer_not_found(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._children = []
         params = MagicMock()
         params.arguments = {"task_id": "abc123", "message": "Go"}
@@ -782,14 +802,15 @@ class TestHandleSteerTask:
 @pytest.mark.unit
 class TestHelpers:
     def test_get_task_type(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         assert agent._get_task_type(None) == "player_ship"
         assert agent._get_task_type("char-123") == "player_ship"
         assert agent._get_task_type("other-ship") == "corp_ship"
 
     def test_is_valid_uuid(self):
-        assert VoiceAgent._is_valid_uuid("550e8400-e29b-41d4-a716-446655440000")
-        assert not VoiceAgent._is_valid_uuid("not-a-uuid")
+        agent = _make_orchestrator()
+        assert agent._is_valid_uuid("550e8400-e29b-41d4-a716-446655440000")
+        assert not agent._is_valid_uuid("not-a-uuid")
 
 
 # ── Corporation info summary ──────────────────────────────────────────
@@ -922,8 +943,8 @@ class TestCorporationInfoSummary:
 
     @pytest.mark.asyncio
     async def test_returns_summary_string(self):
-        agent = _make_voice_agent()
-        agent._VoiceAgent__game_client._request = AsyncMock(return_value=_corp_api_response())
+        agent = _make_orchestrator()
+        agent.game_client._request = AsyncMock(return_value=_corp_api_response())
         callback = AsyncMock()
         params = MagicMock()
         params.arguments = {}
@@ -965,7 +986,7 @@ class TestCorporationInfoSummary:
 class TestVoiceToolErrorWrapping:
     @pytest.mark.asyncio
     async def test_wrap_tool_errors_resolves_uncaught_exception(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         params = _make_function_call_params(result_callback=AsyncMock())
 
         async def boom(_params):
@@ -982,7 +1003,7 @@ class TestVoiceToolErrorWrapping:
 
     @pytest.mark.asyncio
     async def test_wrap_tool_errors_does_not_resolve_twice(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         params = _make_function_call_params(result_callback=AsyncMock())
 
         async def resolve_then_fail(call_params):
@@ -996,7 +1017,7 @@ class TestVoiceToolErrorWrapping:
 
     @pytest.mark.asyncio
     async def test_leaderboard_failure_resolves_cleanly(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.leaderboard_resources = AsyncMock(side_effect=RuntimeError("bad rpc"))
         params = _make_function_call_params(
             function_name="leaderboard_resources",
@@ -1021,7 +1042,7 @@ class TestTaskToolWrappers:
         from pipecat.frames.frames import LLMMessagesAppendFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._tool_call_inflight = 1
         result = {
             "success": True,
@@ -1053,7 +1074,7 @@ class TestTaskToolWrappers:
 
     @pytest.mark.asyncio
     async def test_start_task_tool_failure_stays_quiet(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         result = {"success": False, "error": "already running"}
         agent._handle_start_task = AsyncMock(return_value=result)
         params = _make_function_call_params(function_name="start_task", result_callback=AsyncMock())
@@ -1072,7 +1093,7 @@ class TestTaskToolWrappers:
         from pipecat.frames.frames import LLMMessagesAppendFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._tool_call_inflight = 1
         result = {
             "success": True,
@@ -1111,7 +1132,7 @@ class TestTaskToolWrappers:
         from pipecat.frames.frames import LLMMessagesAppendFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._tool_call_inflight = 1
         result = {
             "success": True,
@@ -1148,7 +1169,7 @@ class TestTaskToolWrappers:
 
     @pytest.mark.asyncio
     async def test_stop_task_tool_failure_stays_quiet(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         result = {"success": False, "error": "no active task"}
         agent._handle_stop_task = AsyncMock(return_value=result)
         params = _make_function_call_params(function_name="stop_task", result_callback=AsyncMock())
@@ -1166,7 +1187,7 @@ class TestTaskToolWrappers:
         from pipecat.frames.frames import LLMMessagesAppendFrame
         from pipecat.processors.frame_processor import FrameDirection
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._tool_call_inflight = 1
         result = {
             "success": True,
@@ -1218,7 +1239,7 @@ class TestLeaderboardSummary:
 
     @pytest.mark.asyncio
     async def test_handle_leaderboard_resources_returns_summary_only(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.leaderboard_resources = AsyncMock(
             return_value=_leaderboard_api_response()
         )
@@ -1242,7 +1263,7 @@ class TestLeaderboardSummary:
 
     @pytest.mark.asyncio
     async def test_handle_leaderboard_resources_returns_error_when_unsummarizable(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.leaderboard_resources = AsyncMock(return_value={"cached": True})
         params = _make_function_call_params(
             function_name="leaderboard_resources",
@@ -1267,7 +1288,7 @@ class TestCorporationDirectTools:
 
     @pytest.mark.asyncio
     async def test_create_corporation_calls_game_client(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.create_corporation = AsyncMock(return_value={"request_id": "req-create"})
         params = MagicMock()
         params.arguments = {"name": "Test Corp"}
@@ -1286,7 +1307,7 @@ class TestCorporationDirectTools:
 
     @pytest.mark.asyncio
     async def test_rename_corporation_calls_game_client(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.rename_corporation = AsyncMock(return_value={"request_id": "req-rename"})
         params = MagicMock()
         params.arguments = {"name": "New Name"}
@@ -1306,11 +1327,11 @@ class TestCorporationDirectTools:
 
 @pytest.mark.unit
 class TestSellShipVoiceTool:
-    """Verify sell_ship voice agent handler calls game_client and blocks when task active."""
+    """Verify sell_ship orchestrator handler calls game_client and blocks when task active."""
 
     @pytest.mark.asyncio
     async def test_sell_ship_calls_game_client(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.sell_ship = AsyncMock(
             return_value={"request_id": "req-sell", "trade_in_value": 500, "credits_after": 1500}
         )
@@ -1333,7 +1354,7 @@ class TestSellShipVoiceTool:
 
     @pytest.mark.asyncio
     async def test_sell_ship_blocked_when_task_active(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.sell_ship = AsyncMock()
         agent._locked_ships = {agent._character_id: "task-uuid"}  # Simulate active player task
         params = MagicMock()
@@ -1350,7 +1371,7 @@ class TestSellShipVoiceTool:
 
     @pytest.mark.asyncio
     async def test_sell_ship_error_propagated(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.sell_ship = AsyncMock(side_effect=RuntimeError("Not at mega-port"))
         params = MagicMock()
         params.arguments = {"ship_id": "abc123"}
@@ -1368,9 +1389,9 @@ class TestSellShipVoiceTool:
 class TestEventDrivenToolErrors:
     @pytest.mark.asyncio
     async def test_my_status_hyperspace_error_is_silent_during_active_player_task(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.my_status = AsyncMock(
             side_effect=RuntimeError("my_status failed with status 409: in hyperspace")
         )
@@ -1393,7 +1414,7 @@ class TestEventDrivenToolErrors:
 
     @pytest.mark.asyncio
     async def test_my_status_hyperspace_error_without_active_task_triggers_llm(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.my_status = AsyncMock(
             side_effect=RuntimeError("my_status failed with status 409: in hyperspace")
         )
@@ -1413,7 +1434,7 @@ class TestEventDrivenToolErrors:
 
     @pytest.mark.asyncio
     async def test_send_message_error_triggers_llm(self):
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         agent._game_client.send_message = AsyncMock(side_effect=RuntimeError("message failed"))
         params = MagicMock()
         params.arguments = {"content": "hello"}
@@ -1436,13 +1457,13 @@ class TestCorpShipRouting:
     """Verify start_task correctly classifies personal vs corp ship tasks."""
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_personal_ship_id_treated_as_player_task(self, mock_client_cls):
         """If the LLM passes a UUID that isn't a corp ship, treat as player task."""
-        agent = _make_voice_agent()
+        agent = _make_orchestrator()
         # _is_corp_ship_id returns False for an unknown ship
-        agent._VoiceAgent__game_client._request = AsyncMock(return_value=_corp_api_response())
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent.game_client._request = AsyncMock(return_value=_corp_api_response())
+        agent.game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
         params = MagicMock()
@@ -1452,24 +1473,24 @@ class TestCorpShipRouting:
         }
 
         # Patch add_agent to avoid framework setup
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_agent.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_corp_ship_id_treated_as_corp_task(self, mock_client_cls):
         """If the LLM passes a UUID that IS a corp ship, treat as corp task."""
-        agent = _make_voice_agent()
-        agent._VoiceAgent__game_client._request = AsyncMock(return_value=_corp_api_response())
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent = _make_orchestrator()
+        agent.game_client._request = AsyncMock(return_value=_corp_api_response())
+        agent.game_client.base_url = "http://localhost"
 
         # Mock the new AsyncGameClient constructor for corp ship tasks
         mock_client_cls.return_value = MagicMock()
@@ -1480,25 +1501,25 @@ class TestCorpShipRouting:
             "ship_id": CORP_SHIP_ID,
         }
 
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "corp_ship"
         # Corp-ship tasks use the broker-owned game client.
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_agent.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is True
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_character_id_as_ship_id_treated_as_player_task(self, mock_client_cls):
         """If the LLM passes the player's own character_id as ship_id, treat as player task."""
         # Use a valid UUID as character_id so it passes _is_valid_uuid
         char_id = "11111111-1111-1111-1111-111111111111"
-        agent = _make_voice_agent(character_id=char_id)
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent = _make_orchestrator(character_id=char_id)
+        agent.game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
         params = MagicMock()
@@ -1507,44 +1528,44 @@ class TestCorpShipRouting:
             "ship_id": char_id,  # Same as the agent's character_id
         }
 
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_agent.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_no_ship_id_is_player_task(self, mock_client_cls):
         """Default: no ship_id means player task."""
-        agent = _make_voice_agent()
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent = _make_orchestrator()
+        agent.game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
         params = MagicMock()
         params.arguments = {"task_description": "Go to sector 5"}
 
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
-        task_agent = agent.add_agent.call_args.args[0]
+        task_agent = agent.add_workers.call_args.args[0]
         # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_explicit_context_is_forwarded_to_task_payload(self, mock_client_cls):
-        agent = _make_voice_agent()
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent = _make_orchestrator()
+        agent.game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
         params = MagicMock()
@@ -1553,7 +1574,7 @@ class TestCorpShipRouting:
             "context": "The commander asked about a sector visit.",
         }
 
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
 
@@ -1562,18 +1583,18 @@ class TestCorpShipRouting:
         assert pending_payload["context"] == "The commander asked about a sector visit."
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_session_task_gets_current_session_boundary_context(self, mock_client_cls):
         relay = MagicMock()
         relay.session_started_at = "2026-03-29T18:46:44+00:00"
-        agent = _make_voice_agent(event_relay=relay)
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent = _make_orchestrator(event_relay=relay)
+        agent.game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
         params = MagicMock()
         params.arguments = {"task_description": "Tell me what we did in the last session"}
 
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
 
         result = await agent._handle_start_task(params)
 
@@ -1584,17 +1605,16 @@ class TestCorpShipRouting:
 
     @pytest.mark.asyncio
     async def test_concurrent_player_start_task_only_allows_one(self):
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_agent = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
 
         params_a = MagicMock()
         params_a.arguments = {"task_description": "Transfer 2000 credits"}
@@ -1616,13 +1636,13 @@ class TestCorpShipRouting:
 
     @pytest.mark.asyncio
     async def test_ship_lock_released_after_task_completes(self):
-        """Ship lock is released; player agent stays in _children for reuse."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.bus.messages import BusTaskResponseMessage
-        from pipecat_subagents.agents.task_context import TaskStatus
+        """Ship lock is released and player agent is removed after completion."""
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from pipecat.bus import BusEndWorkerMessage
+        from pipecat.bus import BusJobResponseMessage
+        from pipecat.pipeline.job_context import JobStatus
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
         agent._inject_context = AsyncMock()
         agent.enqueue_deferred_update = MagicMock()
@@ -1631,7 +1651,7 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_agent = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
 
         # Start a task — locks the ship
         params = MagicMock()
@@ -1640,39 +1660,40 @@ class TestCorpShipRouting:
         assert result["success"]
         assert agent._character_id in agent._locked_ships
 
-        # Simulate on_task_response — unlocks the ship
+        # Simulate on_job_response — unlocks the ship
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
-        msg = MagicMock(spec=BusTaskResponseMessage)
+        msg = MagicMock(spec=BusJobResponseMessage)
         msg.source = child.name
-        msg.task_id = "framework-task-1"
-        msg.status = TaskStatus.COMPLETED
+        msg.job_id = "framework-task-1"
+        msg.status = JobStatus.COMPLETED
         msg.response = {"message": "Done"}
-        agent.send_message = AsyncMock()
+        agent.send_bus_message = AsyncMock()
         agent._tool_call_inflight = 0
         agent._assistant_cycle_active = False
         agent._bot_stopped_speaking_at = 0.0
         agent.update_polling_scope = MagicMock()
 
-        await agent.on_task_response(msg)
+        await agent.on_job_response(msg)
 
         assert agent._character_id not in agent._locked_ships
-        # Player agent stays in _children for reuse (not ended)
-        assert any(c.name == child.name for c in agent._children)
-        agent.send_message.assert_not_called()  # No BusEndAgentMessage sent
+        assert all(c.name != child.name for c in agent._children)
+        agent.send_bus_message.assert_awaited_once()
+        end_message = agent.send_bus_message.await_args.args[0]
+        assert isinstance(end_message, BusEndWorkerMessage)
+        assert end_message.target == child.name
 
     @pytest.mark.asyncio
     async def test_error_after_add_agent_cleans_up_ship_lock(self):
         """If add_agent fails after appending child, both lock and orphan are cleaned up."""
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent.game_client.base_url = "http://localhost"
 
         async def add_agent_that_fails(task_agent):
             agent._children.append(task_agent)
             raise RuntimeError("registry.watch failed")
 
-        agent.add_agent = AsyncMock(side_effect=add_agent_that_fails)
+        agent.add_workers = AsyncMock(side_effect=add_agent_that_fails)
 
         params = MagicMock()
         params.arguments = {"task_description": "Explore sector 5"}
@@ -1684,12 +1705,13 @@ class TestCorpShipRouting:
         assert len(agent._pending_tasks) == 0
 
     @pytest.mark.asyncio
-    async def test_player_agent_reused_across_tasks(self):
-        """Second player task reuses the idle agent instead of creating a new one."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+    async def test_player_agent_recreated_across_tasks(self):
+        """Second player task creates a fresh local worker after first completes."""
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
+        from pipecat.bus import BusJobResponseMessage
+        from pipecat.pipeline.job_context import JobStatus
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
         agent._inject_context = AsyncMock()
         agent.enqueue_deferred_update = MagicMock()
@@ -1698,69 +1720,67 @@ class TestCorpShipRouting:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_agent = AsyncMock(side_effect=add_agent)
-        agent.request_task = AsyncMock(return_value="should-not-be-used")
+        agent.add_workers = AsyncMock(side_effect=add_agent)
+        agent._dispatch_task_with_id = AsyncMock()
 
         # First task — creates a new agent
         params1 = MagicMock()
         params1.arguments = {"task_description": "Mine resources"}
         result1 = await agent._handle_start_task(params1)
         assert result1["success"]
-        # First task is dispatched via on_agent_ready (deferred); task_id is the
+        # First task is dispatched via on_worker_ready (deferred); task_id is the
         # pre-generated framework UUID stored in _pending_tasks.
         first_task_id = result1["task_id"]
-        assert agent.add_agent.call_count == 1
+        assert agent.add_workers.call_count == 1
 
         # Complete the first task
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
         first_agent_name = child.name
-        child._active_task_id = None  # Mark as idle
-        agent._locked_ships.pop(agent._character_id, None)
-        agent._dispatch_task_with_id = AsyncMock()
-        # Phase 1: the reuse path performs the hello handshake before
-        # dispatch. Short-circuit it in the unit test.
-        agent._send_hello_and_wait = AsyncMock()
+        msg = MagicMock(spec=BusJobResponseMessage)
+        msg.source = first_agent_name
+        msg.job_id = first_task_id
+        msg.status = JobStatus.COMPLETED
+        msg.response = {"message": "Done"}
+        agent.send_bus_message = AsyncMock()
+        agent._tool_call_inflight = 0
+        agent._assistant_cycle_active = False
+        agent._bot_stopped_speaking_at = 0.0
+        agent.update_polling_scope = MagicMock()
 
-        # Second task — should reuse the existing idle agent.
-        # The reuse path now pre-generates/acquires a server-side task id,
-        # then dispatches that pinned id to the already-running agent.
+        await agent.on_job_response(msg)
+
+        assert all(c.name != first_agent_name for c in agent._children)
+
+        # Second task — should create a fresh local worker.
         params2 = MagicMock()
         params2.arguments = {"task_description": "Trade goods"}
         result2 = await agent._handle_start_task(params2)
         assert result2["success"]
-        assert result2["task_id"] != "should-not-be-used"
-        assert agent.add_agent.call_count == 1  # No new add_agent call
-        agent.request_task.assert_not_called()
-        agent._dispatch_task_with_id.assert_awaited_once()
-        dispatch_call = agent._dispatch_task_with_id.await_args
-        assert dispatch_call.args[0] == first_agent_name
-        assert dispatch_call.args[1] == result2["task_id"]
-        # The reused agent name should still be the same internal bus name
-        assert any(c.name == first_agent_name for c in agent._children)
-        # And the pre-generated id from the first call should differ from the
-        # reused-path id (different code paths, different sources)
+        assert agent.add_workers.call_count == 2
+        second_child = next(c for c in agent._children if isinstance(c, TaskAgent))
+        assert second_child.name != first_agent_name
         assert first_task_id != result2["task_id"]
+        agent._dispatch_task_with_id.assert_not_awaited()
 
     @pytest.mark.asyncio
-    @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
+    @patch("gradientbang.runtime.orchestrator.AsyncGameClient")
     async def test_corp_agent_destroyed_after_task(self, mock_client_cls):
         """Corp ship agent is ended and removed from _children after task completes."""
-        from pipecat_subagents.bus.messages import BusTaskResponseMessage
-        from pipecat_subagents.agents.task_context import TaskStatus
+        from pipecat.bus import BusJobResponseMessage
+        from pipecat.pipeline.job_context import JobStatus
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
         agent._inject_context = AsyncMock()
         agent.enqueue_deferred_update = MagicMock()
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent.game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_agent = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Test Ship"))
 
         # Start corp task
@@ -1773,42 +1793,41 @@ class TestCorpShipRouting:
         assert result["success"]
         assert len(agent._children) == 1
 
-        # Simulate on_task_response
+        # Simulate on_job_response
         child = agent._children[0]
-        msg = MagicMock(spec=BusTaskResponseMessage)
+        msg = MagicMock(spec=BusJobResponseMessage)
         msg.source = child.name
-        msg.task_id = "framework-task-1"
-        msg.status = TaskStatus.COMPLETED
+        msg.job_id = "framework-task-1"
+        msg.status = JobStatus.COMPLETED
         msg.response = {"message": "Done"}
-        agent.send_message = AsyncMock()
+        agent.send_bus_message = AsyncMock()
         agent._tool_call_inflight = 0
         agent._assistant_cycle_active = False
         agent._bot_stopped_speaking_at = 0.0
         agent.update_polling_scope = MagicMock()
 
-        await agent.on_task_response(msg)
+        await agent.on_job_response(msg)
 
         # Corp agent should be removed
         assert len(agent._children) == 0
-        # BusEndAgentMessage should have been sent
-        agent.send_message.assert_called_once()
+        # BusEndWorkerMessage should have been sent
+        agent.send_bus_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_corp_response_cleanup_runs_when_notification_fails(self):
         """A UI/deferred-update failure must not leak ship locks or corp agents."""
-        from pipecat_subagents.agents.task_context import TaskStatus
-        from pipecat_subagents.bus.messages import BusTaskResponseMessage
+        from pipecat.pipeline.job_context import JobStatus
+        from pipecat.bus import BusJobResponseMessage
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent.game_client.base_url = "http://localhost"
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_agent = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Test Ship"))
 
         params = MagicMock()
@@ -1822,35 +1841,34 @@ class TestCorpShipRouting:
         child = agent._children[0]
         assert child._character_id in agent._locked_ships
 
-        msg = MagicMock(spec=BusTaskResponseMessage)
+        msg = MagicMock(spec=BusJobResponseMessage)
         msg.source = child.name
-        msg.task_id = result["task_id"]
-        msg.status = TaskStatus.COMPLETED
+        msg.job_id = result["task_id"]
+        msg.status = JobStatus.COMPLETED
         msg.response = {"message": "Done"}
         agent._task_output_handler = AsyncMock(side_effect=RuntimeError("rtvi push failed"))
-        agent.send_message = AsyncMock()
+        agent.send_bus_message = AsyncMock()
         agent.update_polling_scope = MagicMock()
 
-        await agent.on_task_response(msg)
+        await agent.on_job_response(msg)
 
         agent._task_output_handler.assert_awaited_once()
         assert child._character_id not in agent._locked_ships
         assert all(c.name != child.name for c in agent._children)
-        agent.send_message.assert_awaited_once()
+        agent.send_bus_message.assert_awaited_once()
         agent.update_polling_scope.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_close_tasks_ends_idle_player_agent(self):
-        """close_tasks() ends all task agents including idle player agent."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+    async def test_close_tasks_ends_remaining_task_agents(self):
+        """close_tasks() ends remaining task agent pipelines."""
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
         agent._locked_ships = {"ship-1": "task-uuid"}
-        agent.send_message = AsyncMock()
+        agent.send_bus_message = AsyncMock()
 
-        # Add an idle player task agent to children
+        # Add a remaining player task agent to children.
         mock_task_agent = MagicMock(spec=TaskAgent)
         mock_task_agent.name = "task_abc123"
         mock_task_agent._is_corp_ship = False
@@ -1860,7 +1878,7 @@ class TestCorpShipRouting:
 
         assert agent._locked_ships == {}
         assert len(agent._children) == 0
-        agent.send_message.assert_called_once()  # BusEndAgentMessage sent
+        agent.send_bus_message.assert_called_once()  # BusEndWorkerMessage sent
 
 
 # ── BYOA / server-side ship lock wiring ────────────────────────────────────
@@ -1868,13 +1886,12 @@ class TestCorpShipRouting:
 
 @pytest.mark.unit
 class TestServerSideShipLock:
-    """VoiceAgent's pre-spawn server acquire + heartbeat + disconnect release."""
+    """Orchestrator's pre-spawn server acquire + heartbeat + disconnect release."""
 
     @pytest.mark.asyncio
     async def test_player_task_acquire_called_with_framework_task_id(self):
         """The new-agent path emits task_lifecycle(start) before spawning."""
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
         agent._inject_context = AsyncMock()
 
@@ -1882,7 +1899,7 @@ class TestServerSideShipLock:
             await asyncio.sleep(0)
             agent._children.append(task_agent)
 
-        agent.add_agent = AsyncMock(side_effect=add_agent)
+        agent.add_workers = AsyncMock(side_effect=add_agent)
 
         params = MagicMock()
         params.arguments = {"task_description": "Mine resources"}
@@ -1900,15 +1917,14 @@ class TestServerSideShipLock:
 
     @pytest.mark.asyncio
     async def test_start_task_returns_byoa_private_on_403(self):
-        from gradientbang.utils.api_client import RPCError
+        from gradientbang.game.base_client import RPCError
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent.add_agent = AsyncMock()
+        agent.add_workers = AsyncMock()
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Bob's Probe"))
-        agent._VoiceAgent__game_client.base_url = "http://localhost"
+        agent.game_client.base_url = "http://localhost"
 
         body = {
             "error": "byoa_private_not_owner",
@@ -1930,19 +1946,18 @@ class TestServerSideShipLock:
         assert result["success"] is False
         assert "BYOA ship" in result["error"]
         assert "0123456789ab" in result["error"]
-        agent.add_agent.assert_not_called()
+        agent.add_workers.assert_not_called()
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio
     async def test_close_tasks_releases_server_side_locks(self):
         """Disconnect path explicitly releases each held lock server-side."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
+        agent = _make_orchestrator()
         agent._children = []
-        agent.send_message = AsyncMock()
-        agent.cancel_task = AsyncMock()
+        agent.send_bus_message = AsyncMock()
+        agent.cancel_job_group = AsyncMock()
 
         # Two locks held: a player ship and a corp ship.
         agent._locked_ships = {
@@ -1970,17 +1985,12 @@ class TestServerSideShipLock:
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio
-    async def test_idle_player_agent_reuse_acquires_before_dispatch(self):
-        """Reusing the idle player agent must hold the server lock before work starts."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+    async def test_player_agent_acquires_before_add_workers(self):
+        """New local player worker must hold the server lock before spawn."""
+        from gradientbang.runtime.subagents.task_agent import TaskAgent
 
-        agent = _make_voice_agent()
-        agent._task_groups = {}
-        child = MagicMock(spec=TaskAgent)
-        child.name = "task_idle"
-        child._is_corp_ship = False
-        child._active_task_id = None
-        agent._children = [child]
+        agent = _make_orchestrator()
+        agent._children = []
 
         order: list[str] = []
 
@@ -1988,22 +1998,19 @@ class TestServerSideShipLock:
             order.append("acquire")
             return {"success": True}
 
-        async def dispatch_mock(*_args, **_kwargs):
-            order.append("dispatch")
+        async def add_workers_mock(task_agent):
+            order.append("add_workers")
+            agent._children.append(task_agent)
 
         agent._game_client.task_lifecycle = AsyncMock(side_effect=lifecycle_mock)
-        agent._dispatch_task_with_id = AsyncMock(side_effect=dispatch_mock)
-        agent.request_task = AsyncMock(return_value="should-not-be-used")
-        # Phase 1: hello handshake sits between acquire and dispatch.
-        agent._send_hello_and_wait = AsyncMock()
+        agent.add_workers = AsyncMock(side_effect=add_workers_mock)
 
         params = MagicMock()
         params.arguments = {"task_description": "Trade goods"}
         result = await agent._handle_start_task(params)
 
         assert result["success"]
-        assert order == ["acquire", "dispatch"]
-        # The hello fires after the acquire and before the dispatch.
-        agent._send_hello_and_wait.assert_awaited_once_with("task_idle")
+        assert order == ["acquire", "add_workers"]
         assert agent._locked_ships[agent._character_id] == result["task_id"]
-        agent.request_task.assert_not_called()
+        child = next(c for c in agent._children if isinstance(c, TaskAgent))
+        assert child._is_corp_ship is False

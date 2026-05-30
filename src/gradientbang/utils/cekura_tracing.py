@@ -6,27 +6,31 @@ accumulates LLM context dumps keyed by S3 key and pushes them to
 Cekura as custom metadata.
 """
 
-import os
 import time
 from typing import Any, Dict, List, Optional
 
 from cekura.pipecat import PipecatTracer
 from loguru import logger
 
+from gradientbang.config import settings
+
 _tracer: Optional[PipecatTracer] = None
 
 
 def init_cekura() -> Optional[PipecatTracer]:
     global _tracer
-    api_key = os.getenv("CEKURA_API_KEY")
-    agent_id = os.getenv("CEKURA_AGENT_ID")
+    if not settings.CEKURA_TRACER_ENABLED:
+        return None
+
+    api_key = settings.CEKURA_API_KEY
+    agent_id = settings.CEKURA_AGENT_ID
     if not api_key or not agent_id:
         return None
 
     _tracer = PipecatTracer(
         api_key=api_key,
         agent_id=int(agent_id),
-        enabled=os.getenv("CEKURA_TRACER_ENABLED", "").lower() != "false",
+        enabled=True,
     )
     logger.info("Cekura tracing initialized")
     return _tracer

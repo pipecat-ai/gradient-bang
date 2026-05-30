@@ -16,8 +16,8 @@ from pipecat.frames.frames import (
     VADUserStartedSpeakingFrame,
 )
 
-from gradientbang.pipecat_server.frames import UserTextInputFrame
-from gradientbang.pipecat_server.idle_report import IdleReportProcessor
+from gradientbang.runtime.frames import UserTextInputFrame
+from gradientbang.runtime.idle_report import IdleReportProcessor
 
 
 class _FakeDirection:

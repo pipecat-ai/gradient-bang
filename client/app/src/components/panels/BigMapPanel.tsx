@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { deepmerge } from "deepmerge-ts"
 import { motion } from "motion/react"
-import { ArrowClockwiseIcon, XIcon } from "@phosphor-icons/react"
+import { NavigationArrowIcon, XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { DottedTitle } from "@/components/DottedTitle"
@@ -263,18 +263,18 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
       <div className="flex-1 relative">
         <MapNodeDetails node={hoveredNode} />
         <Button
-          variant="bland"
+          variant="secondary"
           size="sm"
           aria-label="Recenter map"
           aria-hidden={mapMode !== "freeroam"}
           tabIndex={mapMode === "freeroam" ? 0 : -1}
           onClick={() => recenterMap?.()}
           className={cn(
-            "absolute top-ui-sm left-1/2 -translate-x-1/2 z-30 gap-2 bg-background/95 border outline-2 outline-background transition-opacity duration-200",
+            "absolute bottom-ui-xl left-1/2 -translate-x-1/2 z-90 gap-2.5 bg-accent-background/75 elbow elbow-1 elbow-size-10 hover:bg-foreground hover:text-background hover:animate-none!",
             mapMode === "freeroam" ? "opacity-100" : "opacity-0 pointer-events-none"
           )}
         >
-          <ArrowClockwiseIcon weight="bold" />
+          <NavigationArrowIcon weight="bold" />
           Recenter
         </Button>
         <header className="absolute top-ui-sm right-ui-sm flex flex-col gap-ui-xs w-fit h-fit z-20">

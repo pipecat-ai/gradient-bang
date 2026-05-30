@@ -116,7 +116,7 @@ export const createSettingsSlice: StateCreator<GameStoreState, [], [], SettingsS
         ...(getPersonalityTone(get().settings.personality) && {
           personality_tone: getPersonalityTone(get().settings.personality),
         }),
-        bypass_tutorial: get().bypassTutorial,
+        bypass_tutorial: get().bypass_tutorial,
       },
     }
 

@@ -782,39 +782,21 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         rawZoom !== undefined ? Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, rawZoom)) : undefined
 
       const hasHighlight = Boolean(highlightPath && highlightPath.length > 0)
-      const hasFit = Boolean(fitSectors && fitSectors.length > 0)
-      const zoomOnly =
-        mapZoom !== undefined && mapCenterSector === undefined && !hasHighlight && !hasFit
 
       // --- Zoom ---
-      const fitEquivalentZoom = _estimateZoomFromFitBounds(state.mapFitBoundsWorld)
-
+      // Numeric mapZoom is honored as absolute on the 4–50 scale (the UI agent
+      // picks magnitude). Direction-only requests still step one level at a
+      // time so vague "zoom in/out" stays a gentle nudge.
       if (mapZoom !== undefined) {
-        const currentZoom = fitEquivalentZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
-
-        if (zoomOnly && mapZoom !== currentZoom) {
-          // Step-based zoom: move one level toward the requested zoom
-          const direction = mapZoom < currentZoom ? "in" : "out"
-          const nextZoom = getNextZoomLevel(currentZoom, direction)
-          set(
-            produce((draft) => {
-              draft.mapFitBoundsWorld = undefined
-              draft.mapZoomLevel = nextZoom
-              draft.mapZoomUpdateSource = "programmatic"
-            })
-          )
-        } else if (!zoomOnly) {
-          // Absolute zoom
-          set(
-            produce((draft) => {
-              draft.mapFitBoundsWorld = undefined
-              draft.mapZoomLevel = mapZoom
-              draft.mapZoomUpdateSource = "programmatic"
-            })
-          )
-        }
+        set(
+          produce((draft) => {
+            draft.mapFitBoundsWorld = undefined
+            draft.mapZoomLevel = mapZoom
+            draft.mapZoomUpdateSource = "programmatic"
+          })
+        )
       } else if (mapZoomDirection) {
-        // Relative zoom via direction
+        const fitEquivalentZoom = _estimateZoomFromFitBounds(state.mapFitBoundsWorld)
         const currentZoom = fitEquivalentZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
         const nextZoom = getNextZoomLevel(currentZoom, mapZoomDirection)
         set(

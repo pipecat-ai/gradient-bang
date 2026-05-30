@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * events table.
  *
  * There is no DB-persistent ship-task lock anymore — the bot's in-memory
- * `VoiceAgent._locked_ships` is the authoritative source of "ship is busy".
+ * the bot runtime's in-memory task lock is the authoritative source of
+ * "ship is busy".
  * Server-side callers (UI list endpoints, ship_byoa_configure preconditions)
  * still want a hint, so we derive one from `task.start` events without a
  * matching `task.finish`/`task.cancel` inside a recent window. A bot crash

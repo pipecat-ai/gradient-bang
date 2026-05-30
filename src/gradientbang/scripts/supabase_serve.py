@@ -1,4 +1,6 @@
-"""Wrapper for `npx supabase functions serve` with project defaults."""
+"""Run Supabase edge functions with local project defaults."""
+
+from __future__ import annotations
 
 import os
 import sys

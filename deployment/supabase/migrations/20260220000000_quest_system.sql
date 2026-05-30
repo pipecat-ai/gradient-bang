@@ -531,4 +531,4 @@ CREATE TRIGGER quest_eval_trigger
   EXECUTE FUNCTION trigger_evaluate_quest_progress();
 
 -- Quest data is loaded separately via:
---   uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/
+--   uv run -m gradientbang.scripts.load_quests_to_supabase

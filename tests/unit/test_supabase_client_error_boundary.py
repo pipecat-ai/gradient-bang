@@ -4,7 +4,8 @@ from typing import Any, Dict
 
 import pytest
 
-from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
+from gradientbang.game.base_client import RPCError
+from gradientbang.game.client import AsyncGameClient
 
 
 PLAYER_ID = "11111111-1111-1111-1111-111111111111"
@@ -35,7 +36,11 @@ async def test_failed_supabase_request_raises_and_synthesizes_local_error(
 ) -> None:
     monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")
-    client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+    client = AsyncGameClient(
+        base_url="http://test-supabase.local",
+        character_id=PLAYER_ID,
+        enable_event_polling=False,
+    )
     seen: list[tuple[str, Dict[str, Any]]] = []
 
     async def capture(event_name: str, payload: Dict[str, Any], **_kwargs: Any) -> None:

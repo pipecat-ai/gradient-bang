@@ -32,13 +32,9 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
     setShowConfirmTutorial(true)
   }
 
-  const handleContinue = () => {
+  const handleContinue = (bypass_tutorial: boolean) => {
     // Note: we do not hide the modal here to prevent FOUS
-
-    // Tutorial is not ready yet — always bypass regardless of user choice
-    useGameStore.getState().setBypassTutorial(true)
-
-    // Continue to connect
+    useGameStore.getState().setBypassTutorial(bypass_tutorial)
     onContinue()
   }
 
@@ -92,10 +88,10 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
                     <Divider variant="dashed" className="h-4 text-accent" />
                   </CardContent>
                   <CardFooter className="flex flex-row gap-ui-sm justify-end">
-                    <Button variant="ghost" size="lg" onClick={handleContinue}>
+                    <Button variant="ghost" size="lg" onClick={() => handleContinue(true)}>
                       No, skip tutorial
                     </Button>
-                    <Button size="lg" onClick={() => handleContinue()}>
+                    <Button size="lg" onClick={() => handleContinue(false)}>
                       Yes (recommended)
                     </Button>
                   </CardFooter>

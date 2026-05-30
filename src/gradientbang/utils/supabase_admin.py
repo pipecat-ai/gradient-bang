@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 import httpx
-import re
+
+from gradientbang.config import settings
 from gradientbang.utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
 
 
@@ -46,7 +47,7 @@ CARGO_KEY_MAP = {
 class SupabaseAdminClient:
     """Lightweight client that talks directly to Supabase REST with a service-role key."""
 
-    DEFAULT_CREDITS = int(os.getenv("SUPABASE_ADMIN_DEFAULT_CREDITS", "25000"))
+    DEFAULT_CREDITS = settings.SUPABASE_ADMIN_DEFAULT_CREDITS
 
     def __init__(
         self,
@@ -55,10 +56,10 @@ class SupabaseAdminClient:
         service_role_key: Optional[str] = None,
         timeout: float = 20.0,
     ) -> None:
-        base_url = (supabase_url or os.getenv("SUPABASE_URL") or "").rstrip("/")
+        base_url = (supabase_url or settings.SUPABASE_URL or "").rstrip("/")
         if not base_url:
             raise SupabaseAdminError("SUPABASE_URL must be set to use Supabase admin helpers")
-        key = service_role_key or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        key = service_role_key or settings.SUPABASE_SERVICE_ROLE_KEY
         if not key:
             raise SupabaseAdminError("SUPABASE_SERVICE_ROLE_KEY is required for admin helpers")
 

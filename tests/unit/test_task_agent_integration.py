@@ -14,7 +14,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -25,8 +25,8 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusSteerTaskMessage,
     BusTaskFinishNotification,
 )
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-from pipecat_subagents.bus import BusTaskCancelMessage, BusTaskRequestMessage
+from gradientbang.runtime.subagents.task_agent import TaskAgent
+from pipecat.bus import BusJobCancelMessage, BusJobRequestMessage
 
 
 # ── Harness ───────────────────────────────────────────────────────────────
@@ -74,11 +74,10 @@ class TaskAgentHarness:
         self.game_client._request = AsyncMock(return_value={"status": "Executed."})
 
         bus = MagicMock()
-        bus.send_message = AsyncMock()
+        bus.send_bus_message = AsyncMock()
 
         self.agent = TaskAgent(
             "test_task",
-            bus=bus,
             character_id=character_id,
             is_corp_ship=is_corp_ship,
         )
@@ -89,8 +88,8 @@ class TaskAgentHarness:
         # Capture inference scheduling
         self.queued_frames = []
         self.agent.queue_frame = AsyncMock(side_effect=lambda f: self.queued_frames.append(f))
-        self.agent.send_task_update = AsyncMock()
-        self.agent.send_task_response = AsyncMock()
+        self.agent.send_job_update = AsyncMock()
+        self.agent.send_job_response = AsyncMock()
 
         # Simulated broker: intercept outbound Phase 1 bus messages and
         # dispatch them against the game-client mock. Responses come back
@@ -102,7 +101,7 @@ class TaskAgentHarness:
             self.outbound_messages.append(message)
             await self._simulate_broker(message)
 
-        self.agent.send_message = AsyncMock(side_effect=_broker_dispatch)
+        self.agent.send_bus_message = AsyncMock(side_effect=_broker_dispatch)
 
     async def _simulate_broker(self, message):
         # Tool calls + corp queries + combat strategy + task-finish.
@@ -127,7 +126,7 @@ class TaskAgentHarness:
         if method is None or not callable(method):
             await self._deliver_response(
                 BusGameToolCallResponse(
-                    source="voice_agent",
+                    source="orchestrator",
                     target=self.agent.name,
                     correlation_id=message.correlation_id,
                     error=f"unknown tool: {message.tool_name!r}",
@@ -143,14 +142,14 @@ class TaskAgentHarness:
             raw = await method(**kwargs)
             result = raw if isinstance(raw, dict) else {"result": raw}
             response = BusGameToolCallResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 result=result,
             )
         except Exception as exc:
             response = BusGameToolCallResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 error=str(exc),
@@ -165,14 +164,14 @@ class TaskAgentHarness:
             raw = await self.game_client.combat_get_strategy(**kwargs)
             strategy = raw if isinstance(raw, dict) else {"strategy": raw}
             response = BusCombatStrategyResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 strategy=strategy,
             )
         except Exception as exc:
             response = BusCombatStrategyResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 error=str(exc),
@@ -195,14 +194,14 @@ class TaskAgentHarness:
                 )
             result = raw if isinstance(raw, dict) else {"result": raw}
             response = BusCorporationQueryResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 result=result,
             )
         except Exception as exc:
             response = BusCorporationQueryResponse(
-                source="voice_agent",
+                source="orchestrator",
                 target=self.agent.name,
                 correlation_id=message.correlation_id,
                 error=str(exc),
@@ -217,14 +216,14 @@ class TaskAgentHarness:
 
         asyncio.create_task(_send())
 
-    async def start_task(self, task_id="task-001", description="Test task"):
+    async def start_task(self, job_id="task-001", description="Test task"):
         """Simulate receiving a task request."""
-        self.agent._active_task_id = task_id
-        self.agent._task_requester = "voice_agent"
-        await self.agent.on_task_request(
-            BusTaskRequestMessage(
-                source="voice_agent",
-                task_id=task_id,
+        self.agent._active_task_id = job_id
+        self.agent._task_requester = "orchestrator"
+        await self.agent.on_job_request(
+            BusJobRequestMessage(
+                source="orchestrator",
+                job_id=job_id,
                 payload={"task_description": description},
             )
         )
@@ -263,7 +262,7 @@ class TaskAgentHarness:
 class TestTaskLifecycle:
     async def test_task_request_sets_up_context_and_triggers_inference(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-abc", description="Go trade at sector 5")
+        await h.start_task(job_id="task-abc", description="Go trade at sector 5")
 
         # Context should have system + user messages
         messages = h.agent._llm_context.get_messages()
@@ -275,7 +274,7 @@ class TestTaskLifecycle:
         # First inference triggered
         assert len(h.queued_frames) > 0
 
-        # task.start emission is owned by VoiceAgent (pre-spawn acquire);
+        # task.start emission is owned by Orchestrator (pre-spawn acquire);
         # TaskAgent no longer re-emits it. task.finish still goes through
         # TaskAgent's game_client and is exercised by other tests.
         start_calls = [
@@ -288,10 +287,10 @@ class TestTaskLifecycle:
     async def test_task_request_no_longer_mutates_game_client_task_id(self):
         """Phase 1: TaskAgent doesn't touch the game client's current_task_id
         anymore. The broker tags it per-call instead — covered by
-        test_voice_agent_bus_broker.TestGameToolCallBroker.
+        test_orchestrator_bus_broker.TestGameToolCallBroker.
         """
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-xyz")
+        await h.start_task(job_id="task-xyz")
         # The harness's game_client is a stand-in for what the broker uses;
         # TaskAgent never reaches into it directly anymore.
         assert h.game_client.current_task_id is None
@@ -448,7 +447,7 @@ class TestCorpShipRestriction:
 class TestBusEventFiltering:
     async def test_event_with_matching_task_id_processed(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-001")
+        await h.start_task(job_id="task-001")
         msg_count_before = len(h.agent._llm_context.get_messages())
 
         await h.send_game_event("trade.executed", {"profit": 100}, task_id="task-001")
@@ -458,7 +457,7 @@ class TestBusEventFiltering:
 
     async def test_event_with_different_task_id_ignored(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-001")
+        await h.start_task(job_id="task-001")
         msg_count_before = len(h.agent._llm_context.get_messages())
 
         await h.send_game_event("trade.executed", {"profit": 100}, task_id="other-task")
@@ -519,7 +518,7 @@ class TestSteeringIntegration:
 
     async def test_steering_for_wrong_task_ignored(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-001")
+        await h.start_task(job_id="task-001")
         msg_count_before = len(h.agent._llm_context.get_messages())
 
         await h.send_steering("Wrong task", task_id="task-other")
@@ -531,10 +530,10 @@ class TestSteeringIntegration:
 class TestCancellationIntegration:
     async def test_cancellation_emits_finish_and_quenches(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-001")
+        await h.start_task(job_id="task-001")
         h.agent._llm_inflight = False
 
-        await h.agent.on_task_cancelled(BusTaskCancelMessage(source="voice_agent", task_id="task-001", reason="User cancelled"))
+        await h.agent.on_job_cancelled(BusJobCancelMessage(source="orchestrator", job_id="task-001", reason="User cancelled"))
 
         assert h.agent._cancelled is True
         # task.finish emitted
@@ -552,7 +551,7 @@ class TestCancellationIntegration:
 class TestErrorAccumulation:
     async def test_three_consecutive_errors_auto_finish(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-001")
+        await h.start_task(job_id="task-001")
         h.agent._llm_inflight = False
 
         for i in range(3):
@@ -561,14 +560,14 @@ class TestErrorAccumulation:
         assert h.agent._task_finished is True
         assert h.agent._task_finished_status == "failed"
 
-        # send_task_response should have been called with FAILED
-        h.agent.send_task_response.assert_called_once()
-        call_kwargs = h.agent.send_task_response.call_args[1]
+        # send_job_response should have been called with FAILED
+        h.agent.send_job_response.assert_called_once()
+        call_kwargs = h.agent.send_job_response.call_args[1]
         assert call_kwargs["status"].value == "failed"
 
     async def test_non_error_event_resets_error_count(self):
         h = TaskAgentHarness()
-        await h.start_task(task_id="task-001")
+        await h.start_task(job_id="task-001")
         h.agent._llm_inflight = False
 
         # Two errors

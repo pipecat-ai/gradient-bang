@@ -14,13 +14,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FUNCTIONS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOYMENT_DIR="$(cd "$FUNCTIONS_DIR/../.." && pwd)"
-REPO_ROOT="$(cd "$DEPLOYMENT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$DEPLOYMENT_DIR/.." && pwd)"
 
 # ── Ensure npx is available (nix-shell may be needed) ───────────────────
 if ! command -v npx &>/dev/null; then
-  if [ -f "$REPO_ROOT/shell.nix" ]; then
+  if [ -f "$PROJECT_ROOT/shell.nix" ]; then
     echo "==> npx not found, re-launching inside nix-shell..."
-    exec nix-shell "$REPO_ROOT/shell.nix" --run "bash $0 $*"
+    exec nix-shell "$PROJECT_ROOT/shell.nix" --run "bash $0 $*"
   else
     echo "ERROR: npx not found and no shell.nix available."
     exit 1

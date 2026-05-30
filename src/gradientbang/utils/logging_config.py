@@ -1,18 +1,14 @@
 """Loguru configuration for the bot process.
 
-Provides colored, per-agent log formatting and a filter to suppress noisy
-pipecat debug output.  Call ``configure_logging()`` once after pipecat's
-runner has installed its own loguru handlers.
+Provides colored, per-agent log formatting. Call ``configure_logging()`` once
+after pipecat's runner has installed its own loguru handlers.
 """
 
-import os
 import sys
 
 from loguru import logger
 
-# Library modules whose DEBUG output is per-poll/per-message housekeeping —
-# noisy enough to drown out our own debug lines. Suppressed below INFO.
-_NOISY_DEBUG_MODULE_PREFIXES = ("pgmq.",)
+from gradientbang.config import settings
 
 _AGENT_COLORS: dict[str, tuple[str, str]] = {
     # module leaf name → (color, short label)
@@ -32,17 +28,6 @@ _TASK_OUTPUT_COLORS: dict[str, str] = {
     "STEP": "dim",
     "INPUT": "magenta",
 }
-
-
-def _loguru_filter(record):
-    """Keep INFO+ messages, suppress noisy DEBUG messages."""
-    if "System instruction changed:" in record["message"]:
-        return False
-    if record["level"].no < 20:  # DEBUG
-        name = record["name"] or ""
-        if name.startswith(_NOISY_DEBUG_MODULE_PREFIXES):
-            return False
-    return True
 
 
 def _log_format(record: dict, instance_id: str | None = None) -> str:
@@ -70,7 +55,6 @@ def configure_logging(instance_id: str | None = None):
     logger.remove()
     logger.add(
         sys.stderr,
-        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-        filter=_loguru_filter,
+        level=(settings.LOG_LEVEL or settings.LOGURU_LEVEL).upper(),
         format=lambda record: _log_format(record, instance_id=instance_id),
     )

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +20,8 @@ from loguru import logger
 from pipecat.frames.frames import Frame, MetricsFrame
 from pipecat.metrics.metrics import LLMTokenUsage, LLMUsageMetricsData
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+from gradientbang.config import Settings
 
 TokenSource = Literal["bot", "task"]
 
@@ -90,7 +91,7 @@ class TokenUsageCSVLogger:
     """
 
     def __init__(self, log_path: Optional[Path | str] = None):
-        env_path = os.getenv(DEFAULT_LOG_ENV_VAR)
+        env_path = Settings().TOKEN_USAGE_LOG
         if log_path:
             self._path: Optional[Path] = Path(log_path).expanduser()
         elif env_path:

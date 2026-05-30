@@ -15,21 +15,18 @@ import sys
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
-from gradientbang.utils.config import get_repo_root
-from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
-
-BOT_ENV_FILE = ".env.bot"
+from gradientbang.config import settings
+from gradientbang.game.base_client import RPCError
 
 logger.enable("pipecat")
-_log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
+_log_level = settings.LOGURU_LEVEL.upper()
 logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
-REPO_ROOT = get_repo_root()
-SESSION_LOCK_DIR = REPO_ROOT / "logs" / "ship-sessions"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+SESSION_LOCK_DIR = PROJECT_ROOT / "logs" / "ship-sessions"
 
 
 class SessionLockError(RuntimeError):
@@ -132,7 +129,7 @@ def _log_join_error(
         )
     elif "knowledge" in lower_detail:
         logger.info(
-            "Create world-data/character-map-knowledge/{}.json before retrying.",
+            "Register map knowledge for ship {} before retrying.",
             target_id,
         )
 
@@ -161,7 +158,7 @@ Environment Variables:
 
     parser.add_argument(
         "--server",
-        default=os.getenv("SUPABASE_URL"),
+        default=settings.SUPABASE_URL,
         help="Supabase base URL (default: SUPABASE_URL)",
     )
 
@@ -190,24 +187,17 @@ async def run_task(args: argparse.Namespace) -> int:
         logger.error("SUPABASE_URL is required (or pass --server).")
         return 1
 
-    # Load .env.bot for LLM config (TASK_LLM_*, API keys).
-    bot_env = REPO_ROOT / BOT_ENV_FILE
-    if bot_env.exists():
-        from dotenv import load_dotenv
-
-        load_dotenv(bot_env, override=False)
-    else:
-        logger.warning("No {} found — LLM config may be missing", BOT_ENV_FILE)
+    from gradientbang.game.client import AsyncGameClient
 
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 
-    from pipecat_subagents.agents.base_agent import BaseAgent
-    from pipecat_subagents.runner import AgentRunner
-    from pipecat_subagents.agents.task_context import TaskStatus
+    from pipecat.pipeline.job_context import JobStatus
+    from pipecat.workers.base_worker import BaseWorker
+    from pipecat.workers.runner import WorkerRunner
 
-    from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-    from gradientbang.tools import (
+    from gradientbang.runtime.subagents.task_agent import TaskAgent
+    from gradientbang.runtime.tool_schema import (
         CREATE_CORPORATION,
         JOIN_CORPORATION,
         LEAVE_CORPORATION,
@@ -290,8 +280,8 @@ async def run_task(args: argparse.Namespace) -> int:
 
         # Forward game events from the game client to the bus so TaskAgent
         # receives completion events (status.snapshot, movement.complete, etc.).
-        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
-        from gradientbang.pipecat_server.subagents.task_agent import ASYNC_TOOL_COMPLETIONS
+        from gradientbang.runtime.bus import BusGameEventMessage
+        from gradientbang.runtime.subagents.task_agent import ASYNC_TOOL_COMPLETIONS
 
         # Every event type TaskAgent may wait on, plus ambient ones it filters for.
         _NPC_FORWARDED_EVENTS = set(ASYNC_TOOL_COMPLETIONS.values()) | {
@@ -313,20 +303,19 @@ async def run_task(args: argparse.Namespace) -> int:
         task_done = asyncio.Event()
         task_success = {"value": False}
 
-        class Launcher(BaseAgent):
-            def __init__(self, name, *, bus):
-                super().__init__(name, bus=bus)
+        class Launcher(BaseWorker):
+            def __init__(self, name):
+                super().__init__(name=name)
                 self._pending_payload = None
 
-            async def on_ready(self):
+            async def on_activated(self, activation_args):
+                await super().on_activated(activation_args)
                 # Wire up game event forwarding to the bus
                 for event_name in _NPC_FORWARDED_EVENTS:
                     game_client.add_event_handler(event_name, self._forward_event)
 
                 task_agent = NPCTaskAgent(
                     "npc_task",
-                    bus=self._bus,
-                    game_client=game_client,
                     character_id=target_character_id,
                     is_corp_ship=bool(args.ship_id),
                 )
@@ -334,32 +323,32 @@ async def run_task(args: argparse.Namespace) -> int:
                 if args.instructions:
                     payload["context"] = args.instructions
                 self._pending_payload = payload
-                await self.add_agent(task_agent)
+                await self.add_workers(task_agent)
 
             async def _forward_event(self, event):
-                await self.send_message(
+                await self.send_bus_message(
                     BusGameEventMessage(source=self.name, event=event)
                 )
 
-            async def on_agent_ready(self, data):
-                await super().on_agent_ready(data)
-                if data.agent_name == "npc_task" and self._pending_payload:
+            async def on_worker_ready(self, data):
+                await super().on_worker_ready(data)
+                if data.worker_name == "npc_task" and self._pending_payload:
                     payload = self._pending_payload
                     self._pending_payload = None
-                    await self.request_task("npc_task", payload=payload)
+                    await self.request_job("npc_task", payload=payload)
 
-            async def on_task_response(self, message):
-                await super().on_task_response(message)
-                task_success["value"] = message.status == TaskStatus.COMPLETED
+            async def on_job_response(self, message):
+                await super().on_job_response(message)
+                task_success["value"] = message.status == JobStatus.COMPLETED
                 task_done.set()
 
-            async def on_task_completed(self, result):
-                await super().on_task_completed(result)
+            async def on_job_completed(self, result):
+                await super().on_job_completed(result)
                 task_done.set()
 
-        runner = AgentRunner(handle_sigint=True)
-        launcher = Launcher("launcher", bus=runner.bus)
-        await runner.add_agent(launcher)
+        runner = WorkerRunner(handle_sigint=True)
+        launcher = Launcher("launcher")
+        await runner.add_workers(launcher)
 
         # Run in background, wait for task completion
         runner_task = asyncio.create_task(runner.run())

@@ -1,4 +1,4 @@
-"""Integration tests: real EventRelay + real VoiceAgent wired together.
+"""Integration tests: real EventRelay + real Orchestrator wired together.
 
 Verifies that game events flow correctly through the full relay→voice pipeline,
 with correct LLM frame content, run_llm flags, onboarding state, and combat routing.
@@ -12,15 +12,16 @@ import pytest
 from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.services.llm_service import FunctionCallParams
 
-from gradientbang.pipecat_server.subagents.event_relay import EVENT_CONFIGS, EventRelay
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.runtime.event_relay import EVENT_CONFIGS, EventRelay
+from gradientbang.runtime.orchestrator import Orchestrator
+from .runtime_test_helpers import make_orchestrator
 
 
 # ── Harness ───────────────────────────────────────────────────────────────
 
 
 class RelayVoiceHarness:
-    """Wire real EventRelay + real VoiceAgent, mock external boundaries."""
+    """Wire real EventRelay + real Orchestrator, mock external boundaries."""
 
     def __init__(self, character_id="char-test"):
         self.character_id = character_id
@@ -43,32 +44,23 @@ class RelayVoiceHarness:
         self.rtvi = MagicMock()
         self.rtvi.push_frame = AsyncMock()
 
-        bus = MagicMock()
-        bus.send_message = AsyncMock()
-
-        # Real VoiceAgent
-        self.voice_agent = VoiceAgent(
-            "player",
-            bus=bus,
+        # Real Orchestrator
+        self.orchestrator = make_orchestrator(
             game_client=self.game_client,
             character_id=character_id,
-            rtvi_processor=self.rtvi,
+            rtvi=self.rtvi,
         )
-        # VoiceAgent defaults to active=False (bridged-inactive until the
-        # scripted tutorial flips it on). EventRelay now gates onboarding
-        # injection on this; mark active so event flows reach the LLM.
-        self.voice_agent._active = True
         # Capture LLM frames - EventRelay now calls queue_frame directly
         self.llm_frames: list[LLMMessagesAppendFrame] = []
         from pipecat.processors.frame_processor import FrameDirection as _FD
-        _orig_queue_frame = self.voice_agent.queue_frame
+        _orig_queue_frame = self.orchestrator.queue_frame
 
         async def _capturing_queue_frame(frame, direction=_FD.DOWNSTREAM):
             if isinstance(frame, LLMMessagesAppendFrame):
                 self.llm_frames.append(frame)
             await _orig_queue_frame(frame, direction)
 
-        self.voice_agent.queue_frame = _capturing_queue_frame
+        self.orchestrator.queue_frame = _capturing_queue_frame
 
         # Capture bus broadcasts
         self.bus_events: list[dict] = []
@@ -76,16 +68,16 @@ class RelayVoiceHarness:
         async def _capture_broadcast(event, *, voice_agent_originated: bool = False):
             self.bus_events.append(event)
 
-        self.voice_agent.broadcast_game_event = _capture_broadcast
+        self.orchestrator.broadcast_game_event = _capture_broadcast
 
-        # Real EventRelay, wired to real VoiceAgent
+        # Real EventRelay, wired to real Orchestrator
         self.relay = EventRelay(
             game_client=self.game_client,
             rtvi_processor=self.rtvi,
             character_id=character_id,
-            task_state=self.voice_agent,
+            task_state=self.orchestrator,
         )
-        self.voice_agent._event_relay = self.relay
+        self.orchestrator.event_relay = self.relay
 
     async def feed_event(self, event_name, payload=None, request_id=None, **extra):
         """Feed a game event through the real relay→voice pipeline."""
@@ -187,7 +179,7 @@ class TestCombatParticipant:
         """combat.ended lands in LLM context for participants but does NOT
         trigger inference (InferenceRule.NEVER). round_resolved already
         carried the player-facing outcome; a second ended-triggered run
-        would make the voice agent restate the same combat resolution.
+        would make the orchestrator restate the same combat resolution.
         """
         h = _make_harness()
         await h.feed_event(
@@ -548,7 +540,6 @@ class TestCorpShipCombat:
     async def test_corp_combat_does_not_block_subsequent_player_events(self):
         """After corp combat events, player events still flow normally to LLM."""
         h = _make_harness()
-        h.relay._onboarding_complete = True
 
         # Corp ship combat event (round-1 observed-stake notification)
         await h.feed_event(
@@ -831,11 +822,11 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning should still work — mock add_agent to avoid framework calls
-        with patch.object(h.voice_agent, "add_agent", new_callable=AsyncMock) as mock_add:
+        with patch.object(h.orchestrator, "add_workers", new_callable=AsyncMock) as mock_add:
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "trade at port"}
             params.result_callback = AsyncMock()
-            result = await h.voice_agent._handle_start_task(params)
+            result = await h.orchestrator._handle_start_task(params)
 
         assert result["success"] is True
         assert mock_add.called
@@ -854,11 +845,11 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning works
-        with patch.object(h.voice_agent, "add_agent", new_callable=AsyncMock):
+        with patch.object(h.orchestrator, "add_workers", new_callable=AsyncMock):
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "explore sector 5"}
             params.result_callback = AsyncMock()
-            result = await h.voice_agent._handle_start_task(params)
+            result = await h.orchestrator._handle_start_task(params)
 
         assert result["success"] is True
 
@@ -957,7 +948,7 @@ class TestEventFlowIntegrity:
 
 @pytest.mark.unit
 class TestVoiceLlmRoutingPolicy:
-    """Policy-level coverage through real EventRelay + VoiceAgent wiring."""
+    """Policy-level coverage through real EventRelay + Orchestrator wiring."""
 
     def _direct_context(self):
         return {
@@ -1043,7 +1034,7 @@ class TestVoiceLlmRoutingPolicy:
     async def test_port_update_local_corp_ship_task_event_not_appended(self):
         h = _make_harness()
         h.relay._current_sector_id = 472
-        h.voice_agent.is_our_task = lambda task_id: task_id == "task-1"
+        h.orchestrator.is_our_task = lambda task_id: task_id == "task-1"
 
         await h.feed_event(
             "port.update",
@@ -1181,35 +1172,29 @@ class TestVoiceLlmRoutingPolicy:
 # ── Combat + Task interaction ────────────────────────────────────────────
 
 
-def _make_voice_agent_with_tasks(character_id="char-test"):
-    """Create a VoiceAgent with mock children and task groups for combat tests."""
-    from pipecat_subagents.agents.base_agent import TaskGroup
+def _make_orchestrator_with_tasks(character_id="char-test"):
+    """Create an Orchestrator with mock children and task groups for combat tests."""
+    from pipecat.pipeline.job_context import JobGroup
 
-    from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+    from gradientbang.runtime.subagents.task_agent import TaskAgent
 
     game_client = MagicMock()
     game_client.corporation_id = "corp-1"
     game_client.on = MagicMock(return_value=lambda fn: fn)
     game_client.set_event_polling_scope = MagicMock()
 
-    bus = MagicMock()
-    bus.send = AsyncMock()
-
     rtvi = MagicMock()
     rtvi.push_frame = AsyncMock()
 
-    va = VoiceAgent(
-        "player",
-        bus=bus,
+    va = make_orchestrator(
         game_client=game_client,
         character_id=character_id,
-        rtvi_processor=rtvi,
+        rtvi=rtvi,
     )
 
     # Create mock player task agent
     player_task = TaskAgent(
         "task_player1",
-        bus=bus,
         character_id=character_id,
         is_corp_ship=False,
     )
@@ -1218,26 +1203,27 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
     # Create mock corp ship task agent
     corp_task = TaskAgent(
         "task_corp1",
-        bus=bus,
         character_id="corp-ship-abc",
         is_corp_ship=True,
     )
     corp_task._active_task_id = "corp-task-001"
 
     # Register as children
-    va._children = [player_task, corp_task]
+    va.voice_worker._children = [player_task, corp_task]
 
-    # Register task groups (framework state)
-    va._task_groups = {
-        "player-task-001": TaskGroup(
-            task_id="player-task-001",
-            agent_names={"task_player1"},
-        ),
-        "corp-task-001": TaskGroup(
-            task_id="corp-task-001",
-            agent_names={"task_corp1"},
-        ),
-    }
+    # Seed job groups by mutating the live dict the property returns — same
+    # pattern the framework itself uses (e.g. ``self.job_groups[id] = group``
+    # in ``_create_task_group_for_agent``). The full ``request_job_group``
+    # dispatch dance is unnecessary here; we only care about how the iteration
+    # in ``_cancel_player_tasks_for_combat`` picks which groups to cancel.
+    va.job_groups["player-task-001"] = JobGroup(
+        job_id="player-task-001",
+        worker_names={"task_player1"},
+    )
+    va.job_groups["corp-task-001"] = JobGroup(
+        job_id="corp-task-001",
+        worker_names={"task_corp1"},
+    )
 
     return va, player_task, corp_task
 
@@ -1247,7 +1233,7 @@ class TestCombatTaskCancellation:
     """When the player enters combat, player ship tasks are cancelled but corp ship tasks continue."""
 
     async def test_player_combat_cancels_player_task(self):
-        va, player_task, corp_task = _make_voice_agent_with_tasks()
+        va, player_task, corp_task = _make_orchestrator_with_tasks()
 
         event = {
             "event_name": "combat.round_waiting",
@@ -1260,10 +1246,10 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Player task group should be cancelled
-        assert "player-task-001" not in va._task_groups
+        assert "player-task-001" not in va.job_groups
 
     async def test_player_combat_preserves_corp_task(self):
-        va, player_task, corp_task = _make_voice_agent_with_tasks()
+        va, player_task, corp_task = _make_orchestrator_with_tasks()
 
         event = {
             "event_name": "combat.round_waiting",
@@ -1276,11 +1262,11 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Corp task should still be active
-        assert "corp-task-001" in va._task_groups
+        assert "corp-task-001" in va.job_groups
 
     async def test_corp_combat_does_not_cancel_any_tasks(self):
         """Combat involving only a corp ship should not cancel anything."""
-        va, player_task, corp_task = _make_voice_agent_with_tasks()
+        va, player_task, corp_task = _make_orchestrator_with_tasks()
 
         event = {
             "event_name": "combat.round_waiting",
@@ -1293,12 +1279,12 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Both tasks should still be active
-        assert "player-task-001" in va._task_groups
-        assert "corp-task-001" in va._task_groups
+        assert "player-task-001" in va.job_groups
+        assert "corp-task-001" in va.job_groups
 
     async def test_combat_ended_does_not_cancel_tasks(self):
         """combat.ended should NOT trigger task cancellation."""
-        va, player_task, corp_task = _make_voice_agent_with_tasks()
+        va, player_task, corp_task = _make_orchestrator_with_tasks()
 
         event = {
             "event_name": "combat.ended",
@@ -1310,8 +1296,8 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Both tasks still active (only round_waiting triggers cancellation)
-        assert "player-task-001" in va._task_groups
-        assert "corp-task-001" in va._task_groups
+        assert "player-task-001" in va.job_groups
+        assert "corp-task-001" in va.job_groups
 
     async def test_no_tasks_running_combat_is_safe(self):
         """Combat with no active tasks doesn't error."""
@@ -1319,14 +1305,13 @@ class TestCombatTaskCancellation:
         game_client.corporation_id = "corp-1"
         game_client.on = MagicMock(return_value=lambda fn: fn)
         game_client.set_event_polling_scope = MagicMock()
-        bus = MagicMock()
-        bus.send = AsyncMock()
         rtvi = MagicMock()
         rtvi.push_frame = AsyncMock()
 
-        va = VoiceAgent(
-            "player", bus=bus, game_client=game_client,
-            character_id="char-test", rtvi_processor=rtvi,
+        va = make_orchestrator(
+            game_client=game_client,
+            character_id="char-test",
+            rtvi=rtvi,
         )
 
         event = {
@@ -1355,20 +1340,17 @@ class TestDeferredFlushCoalescing:
         After flush, all AppendFrames should have run_llm stripped, and
         exactly one LLMRunFrame should be appended — a single coalesced
         follow-up inference that picks up all the accumulated context.
-        This prevents per-event duplicate readouts from the voice agent.
+        This prevents per-event duplicate readouts from the orchestrator.
         """
         from pipecat.frames.frames import LLMRunFrame
 
         h = _make_harness()
 
-        # Skip onboarding so it doesn't interfere
-        h.relay._onboarding_complete = True
-
         # Track a request_id so EventRelay treats these as voice-agent events
-        h.voice_agent.track_request_id("travel-req")
+        h.orchestrator.track_request_id("travel-req")
 
         # Simulate tool in-flight
-        h.voice_agent._tool_call_inflight = 1
+        h.orchestrator._tool_call_inflight = 1
 
         # Feed multiple course.plot events through the real EventRelay while tool is active.
         # (ports.list is AppendRule.NEVER now that it's a direct-response tool, so we
@@ -1391,12 +1373,12 @@ class TestDeferredFlushCoalescing:
             request_id="travel-req",
         )
 
-        assert len(h.voice_agent._deferred_frames) == 2
+        assert len(h.orchestrator._deferred_frames) == 2
 
         # Verify: process_deferred_tool_frames strips run_llm from both
         # append frames and coalesces into exactly one LLMRunFrame.
-        deferred = list(h.voice_agent._deferred_frames)
-        result = await h.voice_agent.process_deferred_tool_frames(deferred)
+        deferred = list(h.orchestrator._deferred_frames)
+        result = await h.orchestrator.process_deferred_tool_frames(deferred)
         appends = [f for f, _ in result if isinstance(f, LLMMessagesAppendFrame)]
         runs = [f for f, _ in result if isinstance(f, LLMRunFrame)]
         assert len(appends) == 2

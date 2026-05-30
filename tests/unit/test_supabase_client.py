@@ -14,8 +14,9 @@ from typing import Any, Dict
 
 import pytest
 
-from gradientbang.adapters.events.polling import PollingEventAdapter
-from gradientbang.utils.supabase_client import AsyncGameClient, per_call_identity
+from gradientbang.config import settings as client_settings
+from gradientbang.game.transport.polling import PollingEventAdapter
+from gradientbang.game.client import AsyncGameClient, per_call_identity
 
 
 PLAYER_ID = "11111111-1111-1111-1111-111111111111"
@@ -27,7 +28,11 @@ def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGameClient:
     """Construct a real AsyncGameClient with a manually driven polling adapter."""
     monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")
-    game_client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+    game_client = AsyncGameClient(
+        base_url="http://test-supabase.local",
+        character_id=PLAYER_ID,
+        enable_event_polling=False,
+    )
     game_client._event_adapter = PollingEventAdapter(game_client)
     return game_client
 
@@ -49,6 +54,53 @@ def _row(event_type: str, payload: Dict[str, Any], *, event_id: int = 1) -> Dict
             "scope": "direct",
         },
     }
+
+
+class TestConstructor:
+    def test_defaults_to_supabase_functions_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(client_settings, "SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setattr(client_settings, "EDGE_FUNCTIONS_URL", None)
+
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+
+        assert client._supabase_url == "http://test-supabase.local"
+        assert client._functions_url == "http://test-supabase.local/functions/v1"
+
+    def test_edge_functions_url_overrides_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(client_settings, "SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setattr(client_settings, "EDGE_FUNCTIONS_URL", "http://edge-functions.local/")
+
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+
+        assert client._functions_url == "http://edge-functions.local"
+
+    def test_explicit_functions_url_overrides_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(client_settings, "SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setattr(client_settings, "EDGE_FUNCTIONS_URL", "http://edge-functions.local")
+
+        client = AsyncGameClient(
+            base_url="http://test-supabase.local",
+            character_id=PLAYER_ID,
+            functions_url="http://local-edge-functions.local/",
+            enable_event_polling=False,
+        )
+
+        assert client._functions_url == "http://local-edge-functions.local"
+
+    def test_transport_argument_is_not_supported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+
+        with pytest.raises(TypeError):
+            AsyncGameClient(
+                base_url="http://test-supabase.local",
+                character_id=PLAYER_ID,
+                transport="supabase",
+                enable_event_polling=False,
+            )
 
 
 @pytest.mark.asyncio
@@ -79,7 +131,7 @@ class TestOwnershipFilterSector:
         leak into the bound player's cache.
 
         Exercises the base-class ``_maybe_update_current_sector`` center_sector
-        branch (api_client.py ``map.local``/``local_map_region`` extraction).
+        branch (base_client.py ``map.local``/``local_map_region`` extraction).
         The Supabase ``_maybe_update_sector_from_event`` reads
         ``payload.sector``, not ``center_sector``; that path is covered by the
         ``movement.complete`` test above (which has the same ``payload.sector``
@@ -259,9 +311,13 @@ class TestEdgeHeaders:
     def test_npc_caller_sends_edge_auth_only(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
-        monkeypatch.setenv("EDGE_API_TOKEN", "test-edge-token")
-        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        monkeypatch.setattr(client_settings, "EDGE_API_TOKEN", "test-edge-token")
+        monkeypatch.setattr(client_settings, "SUPABASE_API_TOKEN", None)
+        client = AsyncGameClient(
+            base_url="http://test-supabase.local",
+            character_id=PLAYER_ID,
+            enable_event_polling=False,
+        )
         headers = client._edge_headers()
         assert headers["X-Edge-Auth"] == "test-edge-token"
         assert "X-API-Token" not in headers
@@ -269,9 +325,10 @@ class TestEdgeHeaders:
     def test_bot_caller_sends_both_headers(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
-        monkeypatch.setenv("EDGE_API_TOKEN", "test-edge-token")
+        monkeypatch.setattr(client_settings, "EDGE_API_TOKEN", "test-edge-token")
+        monkeypatch.setattr(client_settings, "SUPABASE_API_TOKEN", None)
         client = AsyncGameClient(
+            base_url="http://test-supabase.local",
             character_id=PLAYER_ID,
             access_token="user-jwt-here",
             enable_event_polling=False,
@@ -288,10 +345,10 @@ class TestEdgeHeaders:
         server's ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV branch can fire. Production
         always sets the env var, so the gap-closure still holds there.
         """
-        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
-        monkeypatch.delenv("EDGE_API_TOKEN", raising=False)
-        monkeypatch.delenv("SUPABASE_API_TOKEN", raising=False)
+        monkeypatch.setattr(client_settings, "EDGE_API_TOKEN", None)
+        monkeypatch.setattr(client_settings, "SUPABASE_API_TOKEN", None)
         client = AsyncGameClient(
+            base_url="http://test-supabase.local",
             character_id=PLAYER_ID,
             access_token="user-jwt-here",
             enable_event_polling=False,
@@ -307,6 +364,7 @@ class TestPerCallIdentityInjection:
     ) -> None:
         monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
         client = AsyncGameClient(
+            base_url="http://test-supabase.local",
             character_id=PLAYER_ID,
             actor_character_id=PLAYER_ID,
             enable_event_polling=False,
@@ -330,6 +388,7 @@ class TestPerCallIdentityInjection:
     ) -> None:
         monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
         client = AsyncGameClient(
+            base_url="http://test-supabase.local",
             character_id=PLAYER_ID,
             actor_character_id=PLAYER_ID,
             enable_event_polling=False,
@@ -366,7 +425,11 @@ class TestPerCallIdentityInjection:
                 posted.append(dict(json))
                 return FakeResponse()
 
-        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        client = AsyncGameClient(
+            base_url="http://test-supabase.local",
+            character_id=PLAYER_ID,
+            enable_event_polling=False,
+        )
         client._http = FakeHttp()  # type: ignore[assignment]
 
         with per_call_identity(CORP_SHIP_ID, PLAYER_ID):
@@ -404,7 +467,11 @@ class TestPerCallIdentityInjection:
                 posted.append(dict(json))
                 return FakeResponse()
 
-        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        client = AsyncGameClient(
+            base_url="http://test-supabase.local",
+            character_id=PLAYER_ID,
+            enable_event_polling=False,
+        )
         client._http = FakeHttp()  # type: ignore[assignment]
 
         with per_call_identity(CORP_SHIP_ID, PLAYER_ID):

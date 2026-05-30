@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from gradientbang.adapters.bus import AsyncQueueBus, make_subagent_bus
-from gradientbang.adapters.bus.pgmq import parse_database_url
+from gradientbang.runtime.bus_transport import AsyncQueueBus, make_subagent_bus
+from gradientbang.runtime.bus_transport.pgmq import parse_database_url
 
 
 @pytest.mark.unit
@@ -55,7 +55,7 @@ class TestMakeSubagentBus:
             return object()
 
         with patch(
-            "gradientbang.adapters.bus.pgmq.build_pgmq_bus",
+            "gradientbang.runtime.bus_transport.pgmq.build_pgmq_bus",
             new=AsyncMock(side_effect=_capture_build),
         ):
             await make_subagent_bus()
@@ -82,7 +82,7 @@ class TestMakeSubagentBus:
         monkeypatch.delenv("SUBAGENT_BUS_SESSION_CHANNEL", raising=False)
 
         with patch(
-            "gradientbang.adapters.bus.pgmq.build_pgmq_bus",
+            "gradientbang.runtime.bus_transport.pgmq.build_pgmq_bus",
             new=AsyncMock(return_value=object()),
         ):
             await make_subagent_bus()

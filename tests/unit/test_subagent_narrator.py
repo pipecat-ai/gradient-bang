@@ -6,8 +6,8 @@ from dataclasses import replace
 
 import pytest
 
-from gradientbang.pipecat_server import subagent_narrator as sn
-from gradientbang.pipecat_server.subagent_narrator import (
+from gradientbang.runtime import subagent_narrator as sn
+from gradientbang.runtime.subagent_narrator import (
     SpeechStateSnapshot,
     SubagentNarrator,
 )
@@ -251,6 +251,6 @@ class TestSubagentNarrator:
         # Allow time to flush (settle = 0.05s).
         await asyncio.sleep(0.2)
         # Note: on_user_stopped_speaking sets awaiting_bot_reply *only in
-        # VoiceAgent's caller* — the narrator itself doesn't touch that
+        # Orchestrator's caller* — the narrator itself doesn't touch that
         # flag. So with our quiet state, the drain proceeds after settle.
         assert harness.narrate_calls == ["<event a/>"]

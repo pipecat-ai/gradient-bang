@@ -1,6 +1,6 @@
 """End-to-end test harness: real agents, real bus, real game server, scripted LLM.
 
-Wires VoiceAgent + EventRelay + TaskAgent with a real AsyncQueueBus and real
+Wires Orchestrator + EventRelay + TaskAgent with a real AsyncQueueBus and real
 AsyncGameClient pointing at the test Supabase instance. The only mock is the
 LLM service, which emits scripted tool call sequences.
 
@@ -15,12 +15,10 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
-from loguru import logger
 from pipecat.frames.frames import (
     FunctionCallFromLLM,
     LLMContextFrame,
@@ -29,14 +27,19 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMThoughtTextFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 
-from pipecat_subagents.bus import AsyncQueueBus
+from pipecat.bus import AsyncQueueBus
 import httpx
-from gradientbang.pipecat_server.subagents.event_relay import EventRelay
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.config import PLAYER_AGENT_NAME
+from gradientbang.game.auth import Auth
+from gradientbang.runtime.event_relay import EventRelay
+from gradientbang.runtime.subagents.task_agent import TaskAgent
+from gradientbang.runtime.orchestrator import Orchestrator
 
 
 # ── EdgeAPI ───────────────────────────────────────────────────────────────
@@ -328,20 +331,36 @@ class E2EHarness:
         self.rtvi = MagicMock()
         self.rtvi.push_frame = AsyncMock()
 
-        # Real VoiceAgent
-        self.voice_agent = VoiceAgent(
-            "player",
-            bus=self.bus,
-            game_client=self.game_client,
-            character_id=character_id,
-            rtvi_processor=self.rtvi,
+        self.voice_llm = ScriptedLLMService([])
+        self.voice_context = LLMContext(messages=[])
+        self.voice_worker = PipelineWorker(
+            Pipeline([self.voice_llm]),
+            name=PLAYER_AGENT_NAME,
+            enable_rtvi=False,
+            cancel_on_idle_timeout=False,
         )
 
-        # Capture LLM frames from VoiceAgent (both LLMMessagesAppendFrame and LLMRunFrame)
+        auth = Auth(character_id=character_id, access_token="test-token")
+        auth.display_name = "E2E Test Captain"
+        self.orchestrator = Orchestrator(
+            auth=auth,
+            session_id=f"e2e-{character_id}",
+            local_api_url=None,
+            rtvi=self.rtvi,
+        )
+        self.orchestrator.game_client = self.game_client
+        self.orchestrator.attach(
+            voice_worker=self.voice_worker,
+            voice_llm=self.voice_llm,
+            context=self.voice_context,
+            transport=None,
+        )
+
+        # Capture LLM frames from Orchestrator (both LLMMessagesAppendFrame and LLMRunFrame)
         self.llm_frames: list[LLMMessagesAppendFrame] = []
         from pipecat.frames.frames import LLMRunFrame as _LLMRunFrame
         self.llm_run_frames: list = []
-        _orig_qf = self.voice_agent.queue_frame
+        _orig_qf = self.orchestrator.queue_frame
 
         async def _capture_frames(frame, direction=FrameDirection.DOWNSTREAM):
             if isinstance(frame, LLMMessagesAppendFrame):
@@ -350,38 +369,40 @@ class E2EHarness:
                 self.llm_run_frames.append(frame)
             await _orig_qf(frame, direction)
 
-        self.voice_agent.queue_frame = _capture_frames
+        self.orchestrator.queue_frame = _capture_frames
 
         # Capture bus broadcasts (while still delivering to real bus)
         self.bus_events: list[dict] = []
-        original_broadcast = self.voice_agent.broadcast_game_event
+        original_broadcast = self.orchestrator.broadcast_game_event
 
         async def _capture_broadcast(event, *, voice_agent_originated: bool = False):
             self.bus_events.append(event)
             await original_broadcast(event, voice_agent_originated=voice_agent_originated)
 
-        self.voice_agent.broadcast_game_event = _capture_broadcast
+        self.orchestrator.broadcast_game_event = _capture_broadcast
 
         # Real EventRelay
         self.relay = EventRelay(
             game_client=self.game_client,
             rtvi_processor=self.rtvi,
             character_id=character_id,
-            task_state=self.voice_agent,
+            task_state=self.orchestrator,
         )
-        self.voice_agent._event_relay = self.relay
+        self.orchestrator._event_relay = self.relay
 
         # Event cursor for polling
         self._event_cursor = 0
 
         # Task completion tracking
         self.task_responses: list[dict] = []
-        self._original_on_task_response = self.voice_agent.on_task_response
+        self._original_on_job_response = self.orchestrator.on_job_response
 
         # Scripted LLM: when set, TaskAgent.build_llm returns this instead of real LLM
         self._task_llm_script: Optional[list[tuple[str, dict]]] = None
         self._task_llm_gate: Optional[asyncio.Event] = None
         self._original_build_llm = TaskAgent.build_llm
+        self._runner = None
+        self._runner_task = None
 
         def _build_llm_override(task_agent_self):
             if self._task_llm_script is not None:
@@ -412,40 +433,36 @@ class E2EHarness:
         return results
 
     async def start_player_task(self, task_description: str = "Player task") -> dict:
-        """Start a player ship task via VoiceAgent, returning the result dict."""
+        """Start a player ship task via Orchestrator, returning the result dict."""
         from pipecat.services.llm_service import FunctionCallParams
 
         params = MagicMock(spec=FunctionCallParams)
         params.arguments = {"task_description": task_description}
         params.result_callback = AsyncMock()
-        return await self.voice_agent._handle_start_task(params)
+        return await self.orchestrator._handle_start_task(params)
 
     async def start_corp_ship_task(
         self, ship_id: str, task_description: str = "Corp ship task"
     ) -> dict:
-        """Start a corp ship task via VoiceAgent, returning the result dict."""
+        """Start a corp ship task via Orchestrator, returning the result dict."""
         from pipecat.services.llm_service import FunctionCallParams
 
         params = MagicMock(spec=FunctionCallParams)
         params.arguments = {"task_description": task_description, "ship_id": ship_id}
         params.result_callback = AsyncMock()
-        return await self.voice_agent._handle_start_task(params)
+        return await self.orchestrator._handle_start_task(params)
 
     async def start(self, *, with_task_agents: bool = False):
-        """Start the agent runner.
+        """Start the player worker runner.
 
         Args:
-            with_task_agents: If True, TaskAgent children spawned by
-                VoiceAgent will have their pipelines built and started
-                by the runner (needed for task E2E tests).
+            with_task_agents: Kept for call-site compatibility; task agents
+                are spawned and watched through the player worker.
         """
-        from pipecat_subagents.runner import AgentRunner
+        from pipecat.workers.runner import WorkerRunner
 
-        # Prevent VoiceAgent from needing a real LLM API key
-        self.voice_agent.build_llm = lambda: ScriptedLLMService([])
-
-        self._runner = AgentRunner(bus=self.bus)
-        await self._runner.add_agent(self.voice_agent)
+        self._runner = WorkerRunner(bus=self.bus)
+        await self._runner.add_workers(self.voice_worker)
         self._runner_task = asyncio.create_task(self._runner.run())
         # Let the runner start agents
         await asyncio.sleep(0.2)
@@ -479,7 +496,7 @@ class E2EHarness:
         join_result = await self.api.call_ok("join", {"character_id": self.character_id})
         join_req_id = join_result.get("request_id")
         if join_req_id:
-            self.voice_agent.track_request_id(join_req_id)
+            self.orchestrator.track_request_id(join_req_id)
 
         # Issue megaport check
         mega_result = await self.api.call_ok(
@@ -533,11 +550,11 @@ class E2EHarness:
         while asyncio.get_event_loop().time() < deadline:
             await self.poll_and_feed_events()
             # Check if any task agent has finished
-            for child in self.voice_agent.children:
+            for child in self.orchestrator.children:
                 if isinstance(child, TaskAgent) and child._task_finished:
                     return True
             # Check if task groups are empty (task completed and cleaned up)
-            if not self.voice_agent._task_groups:
+            if not self.orchestrator.job_groups:
                 return True
             await asyncio.sleep(0.5)
         return False

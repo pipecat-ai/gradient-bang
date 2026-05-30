@@ -17,17 +17,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMContext
 
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from gradientbang.utils.prompt_loader import build_task_agent_prompt
 
 
 def _make_agent(*, custom_prompt: str | None = None) -> TaskAgent:
     bus = MagicMock()
     bus.send = AsyncMock()
-    bus.send_message = AsyncMock()
+    bus.send_bus_message = AsyncMock()
     return TaskAgent(
         "test_byoa",
-        bus=bus,
         character_id="ship-pseudo-1",
         is_corp_ship=True,
         custom_prompt=custom_prompt,
@@ -65,7 +64,7 @@ class TestCustomPromptOnTaskRequest:
             "context": "",
             "task_metadata": {"actor_character_id": "char-operator"},
         }
-        await agent.on_task_request(msg)
+        await agent.on_job_request(msg)
 
         messages = agent._llm_context.get_messages()
         system = next(m for m in messages if m.get("role") == "system")
@@ -84,7 +83,7 @@ class TestCustomPromptOnTaskRequest:
             "context": "",
             "task_metadata": {},
         }
-        await agent.on_task_request(msg)
+        await agent.on_job_request(msg)
         system = next(
             m for m in agent._llm_context.get_messages() if m.get("role") == "system"
         )
@@ -109,9 +108,9 @@ class TestProgressQueryDoesNotLeak:
         sig = inspect.signature(build_task_progress_prompt)
         assert "custom_prompt" not in sig.parameters
 
-        # And on_task_update_requested in TaskAgent (the progress-query
+        # And on_job_update_requested in TaskAgent (the progress-query
         # path) calls the progress builder, never build_task_agent_prompt
         # with custom_prompt.
-        src = inspect.getsource(TaskAgent.on_task_update_requested)
+        src = inspect.getsource(TaskAgent.on_job_update_requested)
         assert "build_task_progress_prompt" in src
         assert "custom_prompt" not in src

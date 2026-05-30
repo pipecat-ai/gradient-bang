@@ -29,8 +29,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
-from gradientbang.pipecat_server.subagents.bus_messages import (
+from gradientbang.runtime.bus import (
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -38,14 +37,15 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusGameToolCallRequest,
     BusGameToolCallResponse,
     BusTaskFinishNotification,
+    PendingRequests,
 )
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 
 
 def _make_agent(**overrides) -> TaskAgent:
     bus = MagicMock()
-    bus.send_message = AsyncMock()
-    kwargs = {"bus": bus, "character_id": "char-123"}
+    bus.send_bus_message = AsyncMock()
+    kwargs = { "character_id": "char-123"}
     kwargs.update(overrides)
     agent = TaskAgent("task_test", **kwargs)
     # Common test scaffolding — the agent needs a task_requester to know
@@ -53,12 +53,12 @@ def _make_agent(**overrides) -> TaskAgent:
     # with an AsyncMock so we can assert the typed outbound shapes.
     agent._task_requester = "voice_agent"
     agent._active_task_id = "active-task-uuid"
-    agent.send_message = AsyncMock()
+    agent.send_bus_message = AsyncMock()
     return agent
 
 
 def _captured(agent: TaskAgent) -> list:
-    return [call.args[0] for call in agent.send_message.await_args_list]
+    return [call.args[0] for call in agent.send_bus_message.await_args_list]
 
 
 # ── Outbound message shapes ──────────────────────────────────────────
@@ -91,7 +91,7 @@ class TestCallGameMessage:
                 )
             )
 
-        agent.send_message.side_effect = _broker
+        agent.send_bus_message.side_effect = _broker
         result = await _fire_and_drain()
         assert result == {"new_sector": 5}
 
@@ -125,7 +125,7 @@ class TestCallGameMessage:
                 )
             )
 
-        agent.send_message.side_effect = _broker
+        agent.send_bus_message.side_effect = _broker
         await agent._call_game("my_status")
 
         msg = _captured(agent)[0]
@@ -149,7 +149,7 @@ class TestCallGameMessage:
                 )
             )
 
-        agent.send_message.side_effect = _broker
+        agent.send_bus_message.side_effect = _broker
         with pytest.raises(RuntimeError, match="ship in hyperspace"):
             await agent._call_game("move")
 
@@ -182,7 +182,7 @@ class TestCorporationQueryMessage:
                 )
             )
 
-        agent.send_message.side_effect = _broker
+        agent.send_bus_message.side_effect = _broker
         await agent._tool_corporation_info(args)
 
         msg = _captured(agent)[0]
@@ -211,7 +211,7 @@ class TestCombatStrategyMessage:
                 )
             )
 
-        agent.send_message.side_effect = _broker
+        agent.send_bus_message.side_effect = _broker
         result = await agent._send_combat_strategy_request(ship_id="ship-probe")
 
         msg = _captured(agent)[0]
@@ -264,10 +264,10 @@ class TestPendingRequestsLifecycle:
     @pytest.mark.asyncio
     async def test_cancel_all_runs_on_task_cancel(self):
         """Any in-flight bus RPCs must fail fast on cancel."""
-        from pipecat_subagents.bus import BusTaskCancelMessage
+        from pipecat.bus import BusJobCancelMessage
 
         agent = _make_agent()
-        agent.send_task_response = AsyncMock()
+        agent.send_job_response = AsyncMock()
         agent._send_task_output = AsyncMock()
         agent._drain_pending_task_outputs = AsyncMock()
         agent._upload_context_snapshot = MagicMock()
@@ -277,9 +277,9 @@ class TestPendingRequestsLifecycle:
         future_task = asyncio.create_task(pending.issue("hold-1", timeout=10.0))
         await asyncio.sleep(0)  # let it register
 
-        await agent.on_task_cancelled(
-            BusTaskCancelMessage(
-                source="voice", task_id="active-task-uuid", reason="user cancel"
+        await agent.on_job_cancelled(
+            BusJobCancelMessage(
+                source="voice", job_id="active-task-uuid", reason="user cancel"
             )
         )
 

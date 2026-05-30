@@ -37,7 +37,6 @@ Environment Variables:
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -45,6 +44,7 @@ from typing import Optional
 from loguru import logger
 from pipecat.services.llm_service import LLMService
 
+from gradientbang.config import Settings
 from gradientbang.utils.gemini_adapter import GradientBangGeminiLLMAdapter
 
 
@@ -63,6 +63,11 @@ class _GoogleGenAINonTextFunctionCallFilter(logging.Filter):
 
 
 _google_genai_filter_installed = False
+
+
+def _current_settings() -> Settings:
+    """Read current environment-backed settings."""
+    return Settings()
 
 
 def _install_google_genai_warning_filter() -> None:
@@ -149,7 +154,7 @@ def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
     }
 
     env_var = env_var_map[provider]
-    api_key = os.getenv(env_var)
+    api_key = getattr(_current_settings(), env_var)
 
     if not api_key:
         raise ValueError(
@@ -266,13 +271,11 @@ def _create_google_service(
 
             return None
 
-    params = None
+    settings = GradientBangGoogleLLMService.Settings(model=model)
     if thinking and thinking.enabled:
-        params = GoogleLLMService.InputParams(
-            thinking=GoogleLLMService.ThinkingConfig(
-                thinking_budget=thinking.budget_tokens,
-                include_thoughts=thinking.include_thoughts,
-            )
+        settings.thinking = GradientBangGoogleLLMService.ThinkingConfig(
+            thinking_budget=thinking.budget_tokens,
+            include_thoughts=thinking.include_thoughts,
         )
 
     llm_kwargs = {}
@@ -281,8 +284,7 @@ def _create_google_service(
 
     return GradientBangGoogleLLMService(
         api_key=api_key,
-        model=model,
-        params=params,
+        settings=settings,
         **llm_kwargs,
     )
 
@@ -427,7 +429,7 @@ def _create_minimax_service(
     if function_call_timeout_secs is not None:
         llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
 
-    base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+    base_url = _current_settings().MINIMAX_BASE_URL
 
     return OpenAILLMService(
         api_key=api_key,
@@ -449,7 +451,8 @@ def get_voice_llm_config() -> LLMServiceConfig:
     Returns:
         LLMServiceConfig for voice pipeline (thinking disabled by default).
     """
-    provider_str = os.getenv("VOICE_LLM_PROVIDER", "google").lower()
+    current = _current_settings()
+    provider_str = current.VOICE_LLM_PROVIDER.strip().lower()
     try:
         provider = LLMProvider(provider_str)
     except ValueError:
@@ -464,17 +467,9 @@ def get_voice_llm_config() -> LLMServiceConfig:
         LLMProvider.MINIMAX: "MiniMax-M2.7",
     }
 
-    model = os.getenv("VOICE_LLM_MODEL", default_models[provider])
+    model = current.VOICE_LLM_MODEL or default_models[provider]
 
-    # Parse thinking budget
-    thinking_budget_str = os.getenv("VOICE_LLM_THINKING_BUDGET", "0")
-    try:
-        thinking_budget = int(thinking_budget_str)
-    except ValueError:
-        logger.warning(
-            f"Invalid VOICE_LLM_THINKING_BUDGET '{thinking_budget_str}', using default 0"
-        )
-        thinking_budget = 0
+    thinking_budget = current.VOICE_LLM_THINKING_BUDGET
 
     thinking = None
     if thinking_budget > 0:
@@ -484,15 +479,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
             include_thoughts=False,
         )
 
-    # Parse tool call timeout
-    timeout_str = os.getenv("VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20")
-    try:
-        function_call_timeout_secs = float(timeout_str)
-    except ValueError:
-        logger.warning(
-            f"Invalid VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS '{timeout_str}', using default 20"
-        )
-        function_call_timeout_secs = 20.0
+    function_call_timeout_secs = current.VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS
 
     logger.info(
         f"Voice LLM config: provider={provider.value}, model={model}, "
@@ -519,7 +506,8 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
     Returns:
         LLMServiceConfig for task agent (with thinking enabled).
     """
-    provider_str = os.getenv("TASK_LLM_PROVIDER", "google").lower()
+    current = _current_settings()
+    provider_str = current.TASK_LLM_PROVIDER.strip().lower()
     try:
         provider = LLMProvider(provider_str)
     except ValueError:
@@ -534,17 +522,9 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.MINIMAX: "MiniMax-M2.7",
     }
 
-    model = os.getenv("TASK_LLM_MODEL", default_models[provider])
+    model = current.TASK_LLM_MODEL or default_models[provider]
 
-    # Parse thinking budget
-    thinking_budget_str = os.getenv("TASK_LLM_THINKING_BUDGET", "4096")
-    try:
-        thinking_budget = int(thinking_budget_str)
-    except ValueError:
-        logger.warning(
-            f"Invalid TASK_LLM_THINKING_BUDGET '{thinking_budget_str}', using default 4096"
-        )
-        thinking_budget = 4096
+    thinking_budget = current.TASK_LLM_THINKING_BUDGET
 
     thinking = UnifiedThinkingConfig(
         enabled=True,
@@ -552,15 +532,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         include_thoughts=True,  # Always include thoughts for task LLMs
     )
 
-    # Parse tool call timeout
-    timeout_str = os.getenv("TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20")
-    try:
-        function_call_timeout_secs = float(timeout_str)
-    except ValueError:
-        logger.warning(
-            f"Invalid TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS '{timeout_str}', using default 20"
-        )
-        function_call_timeout_secs = 20.0
+    function_call_timeout_secs = current.TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS
 
     logger.info(
         f"Task LLM config: provider={provider.value}, model={model}, "
@@ -587,7 +559,8 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
     Returns:
         LLMServiceConfig for UI agent.
     """
-    provider_str = os.getenv("UI_AGENT_LLM_PROVIDER", "google").lower()
+    current = _current_settings()
+    provider_str = current.UI_AGENT_LLM_PROVIDER.strip().lower()
     try:
         provider = LLMProvider(provider_str)
     except ValueError:
@@ -602,16 +575,13 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.OPENAI: "gpt-4.1",
         LLMProvider.MINIMAX: "MiniMax-M2.7",
     }
-    model = os.getenv("UI_AGENT_LLM_MODEL", default_models[provider])
+    model = (
+        current.UI_AGENT_LLM_MODEL
+        if "UI_AGENT_LLM_MODEL" in current.model_fields_set
+        else default_models[provider]
+    )
 
-    thinking_budget_str = os.getenv("UI_AGENT_LLM_THINKING_BUDGET", "0")
-    try:
-        thinking_budget = int(thinking_budget_str)
-    except ValueError:
-        logger.warning(
-            f"Invalid UI_AGENT_LLM_THINKING_BUDGET '{thinking_budget_str}', using default 0"
-        )
-        thinking_budget = 0
+    thinking_budget = current.UI_AGENT_LLM_THINKING_BUDGET
 
     thinking = None
     if thinking_budget > 0:

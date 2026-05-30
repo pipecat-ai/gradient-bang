@@ -1,4 +1,4 @@
-"""Full integration tests: EventRelay + VoiceAgent with real DB fixtures.
+"""Full integration tests: EventRelay + Orchestrator with real DB fixtures.
 
 Requires a running Supabase instance with edge functions (server.ts).
 Run via: bash scripts/run-integration-tests.sh
@@ -57,7 +57,6 @@ class TestOnboardingNewPlayer:
             assert h.relay.is_new_player is True
 
             # Onboarding prompt injected into LLM context
-            assert h.relay._onboarding_complete is True
             onboarding = [c for c, _ in h.llm_messages if '<event name="onboarding">' in c]
             assert len(onboarding) == 1, (
                 f"Expected 1 onboarding frame, got {len(onboarding)}. "
@@ -103,7 +102,6 @@ class TestOnboardingVeteranPlayer:
                 f"Expected veteran. Ports frames: "
                 f"{[c[:100] for c, _ in h.llm_messages if 'ports.list' in c]}"
             )
-            assert h.relay._onboarding_complete is True
 
             session = [c for c, _ in h.llm_messages if '<event name="session.start">' in c]
             assert len(session) == 1, (
@@ -121,7 +119,7 @@ class TestOnboardingVeteranPlayer:
 
 @pytest.mark.integration
 class TestMegaportDiscoveryAtRuntime:
-    """New player starts away from mega-port, moves there, discovers it."""
+    """Runtime discovery does not mutate session-scoped onboarding state."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, reset_db_with_characters, edge_api, supabase_url, supabase_service_role_key, make_game_client):
@@ -137,22 +135,21 @@ class TestMegaportDiscoveryAtRuntime:
         self.ship_id = await get_ship_id(supabase_url, supabase_service_role_key, self.character_id)
         await set_ship_sector(supabase_url, supabase_service_role_key, self.ship_id, 1)
 
-    async def test_new_player_discovers_megaport_becomes_veteran(self):
+    async def test_new_player_discovery_leaves_current_session_state_unchanged(self):
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         await h.start()
         try:
             await h.join_game()
             assert h.relay.is_new_player is True
-            assert h.relay._onboarding_complete is True
 
             # Clear frames to isolate discovery
             h.llm_frames.clear()
             h.bus_events.clear()
 
-            # Move ship to sector 0 (mega-port) and re-join
+            # Move ship to sector 0 (mega-port), then emit fresh server events
+            # without restarting the orchestrator session.
             await set_ship_sector(self.supabase_url, self.service_key, self.ship_id, 0)
 
-            cursor = h._event_cursor
             await self.api.call_ok("join", {"character_id": self.character_id})
             await self.api.call_ok(
                 "list_known_ports",
@@ -162,10 +159,7 @@ class TestMegaportDiscoveryAtRuntime:
             # Fetch and feed all new events
             await h.poll_and_feed_events()
 
-            assert h.relay.is_new_player is False, (
-                f"Expected veteran after megaport discovery. "
-                f"Ports frames: {[c[:100] for c, _ in h.llm_messages if 'ports.list' in c]}"
-            )
+            assert h.relay.is_new_player is True
         finally:
             await h.stop()
 

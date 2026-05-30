@@ -19,7 +19,7 @@ Load detailed info when executing or answering questions about specific game mec
 ## When to Load Event Logs
 
 For historical lookup tasks, the TaskAgent may load `load_game_info(topic="event_logs")` as needed.
-If you are the VoiceAgent handling a historical question, start the task first rather than loading `event_logs` yourself.
+If you are the voice runtime handling a historical question, start the task first rather than loading `event_logs` yourself.
 
 This includes questions like:
 - who visited/entered/left a sector

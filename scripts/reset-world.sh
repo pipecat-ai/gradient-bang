@@ -339,11 +339,12 @@ echo ""
 
 echo "[reset-world] Step 3/5 -- Generating universe ($SECTOR_COUNT sectors) ..."
 
+WORLD_DATA_DIR="${GRADIENTBANG_WORLD_DATA_DIR:-tmp/world-data}"
 BANG_ARGS=("$SECTOR_COUNT")
 if [[ -n "$SEED" ]]; then
   BANG_ARGS+=("$SEED")
 fi
-BANG_ARGS+=("--force")
+BANG_ARGS+=("--force" "--output-dir" "$WORLD_DATA_DIR")
 
 uv run universe-bang "${BANG_ARGS[@]}"
 
@@ -357,7 +358,7 @@ echo ""
 echo "[reset-world] Step 4/5 -- Loading universe into Supabase ..."
 
 uv run -m gradientbang.scripts.load_universe_to_supabase \
-  --from-json world-data/ --force
+  --from-json "$WORLD_DATA_DIR" --force
 
 echo "[reset-world] Universe loaded."
 echo ""
@@ -368,8 +369,9 @@ echo ""
 
 echo "[reset-world] Step 5/5 -- Loading quest definitions ..."
 
+QUEST_DATA_DIR="${GRADIENTBANG_QUEST_DATA_DIR:-data/quests}"
 uv run -m gradientbang.scripts.load_quests_to_supabase \
-  --from-json quest-data/ --force
+  --from-json "$QUEST_DATA_DIR" --force
 
 echo "[reset-world] Quests loaded."
 echo ""

@@ -17,10 +17,10 @@ import uuid
 
 import pytest
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
-from pipecat_subagents.bus import BusSubscriber
+from pipecat.bus import BusSubscriber
 
-from gradientbang.adapters.bus.pgmq import build_pgmq_bus
-from gradientbang.pipecat_server.subagents.bus_messages import BusGameToolCallRequest
+from gradientbang.runtime.bus_transport.pgmq import build_pgmq_bus
+from gradientbang.runtime.bus import BusGameToolCallRequest
 
 pytestmark = pytest.mark.integration
 
@@ -45,7 +45,7 @@ class _Collector(BusSubscriber):
 async def _wire_task_manager(bus) -> None:
     tm = TaskManager()
     tm.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
-    bus.set_task_manager(tm)
+    await bus.setup(tm)
 
 
 async def test_pgmq_bus_round_trip_custom_message():
@@ -58,7 +58,7 @@ async def test_pgmq_bus_round_trip_custom_message():
 
     # Unique channel so concurrent test runs and stray dev queues don't
     # cross-talk through the shared DB.
-    channel = f"gb_test_{uuid.uuid4().hex[:10]}"
+    channel = f"gb_{uuid.uuid4().hex}"
 
     publisher = await build_pgmq_bus(database_url=dsn, channel=channel)
     subscriber_bus = await build_pgmq_bus(database_url=dsn, channel=channel)

@@ -16,7 +16,7 @@ If you have [Claude Code](https://docs.anthropic.com/en/docs/claude-code) instal
 /init
 ```
 
-This single command installs dependencies, starts Supabase, generates environment files, creates world data, and walks you through providing API keys. See [Initial setup](#initial-setup) below for the manual equivalent.
+This single command installs dependencies, starts Supabase, generates environment files, creates universe data, and walks you through providing API keys. See [Initial setup](#initial-setup) below for the manual equivalent.
 
 Many of the steps described in this README also have corresponding Claude Code skills — look for the `/skill-name` callouts. See the full [Claude Code skills reference](#claude-code-skills-reference) at the bottom.
 
@@ -34,7 +34,7 @@ Many of the steps described in this README also have corresponding Claude Code s
 
 If you want to work on Gradient Bang, the first step is getting the entire app running locally. There are four components to run:
 
-- **Supabase** is the "game server". We use its PostrgreSQL database (with some important PL/pgSQL functions) for storage, and [Subabase Edge Functions](https://supabase.com/docs/guides/functions) for the API. Supabase provides a [CLI tool](https://supabase.com/docs/guides/local-development) to run their stack locally for development.
+- **Supabase** is the "game server". We use its PostgreSQL database (with some important PL/pgSQL functions) for storage, and [Supabase Edge Functions](https://supabase.com/docs/guides/functions) for the API. Supabase provides a [CLI tool](https://supabase.com/docs/guides/local-development) to run their stack locally for development.
 - The **edge functions** dev server serves the functions in the `deployment/supabase/functions` folder.
 - The **client** is the game UI, built in React and deployed to Vercel using `turbo`.
 - The **bot** is a Pipecat bot, deployed to [Pipecat Cloud](https://docs.pipecat.ai/deployment/pipecat-cloud/introduction).
@@ -77,7 +77,7 @@ Next, run this helper after `supabase start` (and after any manual database rese
 scripts/supabase-reset-with-cron.sh
 ```
 
-Next, run the universe bang script with number of sectors to chart and a random seed. This creates world data. Then, load that data into your local database.
+Next, generate a universe and load it into your local database. `universe-bang` writes `tmp/world-data/universe.json` and validates the generated graph before saving it.
 
 ```bash
 uv run universe-bang 5000 1234
@@ -85,7 +85,8 @@ uv run universe-bang 5000 1234
 # Load .env.supabase to env (if not done already)
 set -a && source .env.supabase && set +a
 
-uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/ --dry-run
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/
 ```
 
 ### Step 2: Edge functions
@@ -124,7 +125,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/register \
 Install Python dependencies:
 
 ```bash
-uv sync --all-groups
+uv sync
 ```
 
 Copy the `env.bot.example` file and add your keys (see [Bot environment variables](#bot-env-bot) for the full list):
@@ -194,15 +195,6 @@ uv run bot
 cd client && pnpm run dev
 ```
 
-### Looking up character IDs
-
-To find the character ID for an existing character by name:
-
-```bash
-set -a && source .env.supabase && set +a
-uv run character-lookup "SpaceTrader"
-```
-
 ### Running the NPC task agent
 
 > **Claude Code:** `/npc <character_name>` resolves the name and launches the agent in the background.
@@ -212,13 +204,6 @@ Run autonomous tasks with a character using the text-based task agent:
 ```bash
 set -a && source .env.supabase && set +a
 uv run npc-run <character-id> "Explore and find 5 new sectors"
-```
-
-Example with a looked-up character:
-
-```bash
-set -a && source .env.supabase && set +a
-uv run npc-run $(uv run character-lookup "SpaceTrader") "Check my status and move to an adjacent sector"
 ```
 
 ### Database reset that preserves user accounts
@@ -233,14 +218,6 @@ scripts/reset-world.sh --env .env.cloud 1000 42
 ```
 
 Local resets also create/update the restricted BYOA bus login used by `uv run byoa`: `postgresql://byoa_login:byoa_dev_password@127.0.0.1:54322/postgres`.
-
-### Generate universe map visualization
-
-```bash
-uv run -m gradientbang.scripts.universe_svg
-```
-
-This creates `artifacts/universe-map.svg` showing sectors, warps, fedspace (highlighted), and mega-ports.
 
 ### Local-adjacent development (Tailscale)
 
@@ -325,7 +302,7 @@ gb start
 
 ## Event delivery modes
 
-The bot's `AsyncGameClient` receives game events via one of two transports, picked at construction time based on `EVENT_TRANSPORT`.
+The bot's `AsyncGameClient` receives game events via one of two Supabase event-delivery adapters, picked when event delivery starts based on `EVENT_TRANSPORT`.
 
 ### `pubsub` (default)
 
@@ -371,7 +348,7 @@ Polling remains the fallback. Pubsub is the default direct-Postgres path for onl
 
 ## Subagent bus transport
 
-Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how MainAgent / VoiceAgent / TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide.
+Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how the player runtime, Orchestrator, and TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide.
 
 ### `local` (default)
 
@@ -427,7 +404,7 @@ Available markers: `unit`, `llm`, `integration`, `stress`, `live_api`.
 
 ### Unit tests
 
-The `tests/unit/` directory includes unit tests for the bot's agent layer — EventRelay routing, VoiceAgent tool registration, TaskAgent construction, and EventRelay↔VoiceAgent integration tests that wire real objects together with mock external boundaries.
+The `tests/unit/` directory includes unit tests for the bot's agent layer — EventRelay routing, voice runtime tool registration, TaskAgent construction, and runtime integration tests that wire real objects together with mock external boundaries.
 
 ```bash
 # Run all unit tests
@@ -562,24 +539,25 @@ npx supabase secrets set --env-file .env.cloud
 
 Note: we will need to add `BOT_START_URL` and `BOT_START_API_KEY` later.
 
-#### Add world data
+#### Add Universe Data
 
-If you don't already have a universe, create it like this:
+Generate the universe JSON locally. The output path is `tmp/world-data/universe.json`.
 
 ```bash
 uv run universe-bang 5000 1234
 ```
 
-Now load it into your Supabase project:
+Validate and load it into the Supabase project referenced by your current environment:
 
 ```bash
-uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/ --dry-run
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/
 ```
 
 Load quest definitions (or use `/load-quests`):
 
 ```bash
-uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/
+uv run -m gradientbang.scripts.load_quests_to_supabase
 ```
 
 ### Deploy bot to Pipecat Cloud
@@ -717,21 +695,21 @@ pnpm run dev
 
 #### LLM configuration
 
-| Variable                               | Required | Default | Description                                                                      |
-| -------------------------------------- | -------- | ------- | -------------------------------------------------------------------------------- |
-| `VOICE_LLM_PROVIDER`                   | Yes      | —       | Voice LLM provider (`google`, `anthropic`, `openai`)                             |
-| `VOICE_LLM_MODEL`                      | Yes      | —       | Voice LLM model name                                                             |
-| `VOICE_LLM_THINKING_BUDGET`            | No       | `0`     | Token budget for voice agent extended thinking                                   |
-| `VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No       | `20`    | Voice agent tool call timeout (seconds)                                          |
-| `TASK_LLM_PROVIDER`                    | Yes      | —       | Task agent LLM provider                                                          |
-| `TASK_LLM_MODEL`                       | Yes      | —       | Task agent LLM model name                                                        |
-| `TASK_LLM_THINKING_BUDGET`             | No       | `4096`  | Token budget for task agent extended thinking                                    |
-| `TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS`  | No       | `20`    | Task agent tool call timeout (seconds)                                           |
-| `TASK_AGENT_TIMEOUT`                   | No       | —       | Max task agent lifetime in seconds; cancelled on expiry (e.g. `1800` for 30 min) |
-| `TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS` | No       | `1.0`   | Delay before event-triggered task-agent inference so already-delivered sibling events drain through the ordered mailbox. Set `0` to disable. |
-| `UI_AGENT_LLM_PROVIDER`                | Yes      | —       | UI agent LLM provider                                                            |
-| `UI_AGENT_LLM_MODEL`                   | Yes      | —       | UI agent LLM model name                                                          |
-| `UI_AGENT_LLM_THINKING_BUDGET`         | No       | `0`     | Token budget for UI agent thinking                                               |
+| Variable                               | Required | Default            | Description                                                                                                                                |
+| -------------------------------------- | -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VOICE_LLM_PROVIDER`                   | No       | `google`           | Voice LLM provider (`google`, `anthropic`, `openai`, `minimax`)                                                                            |
+| `VOICE_LLM_MODEL`                      | No       | provider default   | Voice LLM model name                                                                                                                       |
+| `VOICE_LLM_THINKING_BUDGET`            | No       | `0`                | Token budget for voice agent extended thinking                                                                                             |
+| `VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No       | `20`               | Voice agent tool call timeout (seconds)                                                                                                    |
+| `TASK_LLM_PROVIDER`                    | No       | `google`           | Task agent LLM provider (`google`, `anthropic`, `openai`, `minimax`)                                                                       |
+| `TASK_LLM_MODEL`                       | No       | provider default   | Task agent LLM model name                                                                                                                  |
+| `TASK_LLM_THINKING_BUDGET`             | No       | `4096`             | Token budget for task agent extended thinking                                                                                              |
+| `TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS`  | No       | `20`               | Task agent tool call timeout (seconds)                                                                                                     |
+| `TASK_AGENT_TIMEOUT`                   | No       | —                  | Max task agent lifetime in seconds; cancelled on expiry (e.g. `1800` for 30 min)                                                           |
+| `TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS` | No       | `1.0`              | Delay before event-triggered task-agent inference so already-delivered sibling events drain through the ordered mailbox. Set `0` to disable. |
+| `UI_AGENT_LLM_PROVIDER`                | No       | `google`           | UI agent LLM provider                                                                                                                      |
+| `UI_AGENT_LLM_MODEL`                   | No       | `gemini-2.5-flash` | UI agent LLM model name                                                                                                                    |
+| `UI_AGENT_LLM_THINKING_BUDGET`         | No       | `0`                | Token budget for UI agent thinking                                                                                                         |
 | `CONTEXT_SUMMARIZATION_MESSAGE_LIMIT`  | No       | `200`   | Max unsummarized messages before context summarization                           |
 
 #### UI agent tuning
@@ -751,8 +729,9 @@ pnpm run dev
 | Variable                      | Default | Description                                                                                                                                                                                                                                                                                                                                                                |
 | ----------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BOT_IDLE_REPORT_ENABLED`     | `1`     | Enable idle task status reports (`0` to disable — processor stays in pipeline as a passthrough)                                                                                                                                                                                                                                                                            |
-| `BOT_IDLE_REPORT_TIME`        | `7.5`   | Seconds of silence before the bot gives a one-sentence task status update                                                                                                                                                                                                                                                                                                  |
-| `BOT_IDLE_REPORT_COOLDOWN`    | `30`    | Minimum seconds between consecutive idle reports                                                                                                                                                                                                                                                                                                                           |
+| `BOT_IDLE_REPORT_TIME`        | `9.0`   | Seconds of silence before the bot gives a one-sentence task status update                                                                                                                                                                                                                                                                                                  |
+| `BOT_IDLE_REPORT_COOLDOWN`    | `45.0`  | Minimum seconds between consecutive idle reports                                                                                                                                                                                                                                                                                                                           |
+| `BOT_NEW_PLAYER_ONBOARDING`   | `1`     | Enable new-player onboarding prompt injection and mega-port route seeding for players with no known mega-port (`0` to disable for evals/tests)                                                                                                                                                                                                                             |
 | `BOT_USE_KRISP`               | `0`     | Enable Krisp noise cancellation (`1` for production, `0` for local dev)                                                                                                                                                                                                                                                                                                    |
 | `BOT_TEST_CHARACTER_ID`       | —       | Hardcoded character ID for testing. Pair with `BOT_TEST_ACCESS_TOKEN` when invoking `/start` directly (e.g. ladle, curl) — the bot needs both: the character to bind to, and a JWT for that character's owner.                                                                                                                                                             |
 | `BOT_TEST_CHARACTER_NAME`     | —       | Hardcoded character name for testing                                                                                                                                                                                                                                                                                                                                       |
@@ -793,10 +772,10 @@ This project includes a set of [Claude Code](https://docs.anthropic.com/en/docs/
 
 | Skill               | Description                                                                                                                               | Arguments                                                                        |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `/init`             | Full project setup from a fresh clone. Installs deps, starts Supabase, creates env files, generates world data, and prompts for API keys. | None — interactive prompts for API keys                                          |
+| `/init`             | Full project setup from a fresh clone. Installs deps, starts Supabase, creates env files, generates universe data, and prompts for API keys. | None — interactive prompts for API keys                                          |
 | `/migrate`          | Applies pending Supabase database migrations. Reviews SQL before applying, never resets or drops data.                                    | `local`, `dev`, or `prod`                                                        |
 | `/reset-world`      | Resets game database, generates a fresh universe, loads quests, and seeds combat cron config.                                             | Environment (`local`/`cloud`), sector count (default `5000`), seed (optional)    |
-| `/load-quests`      | Loads quest definitions from `quest-data/` JSON files into Supabase.                                                                      | Mode (`upsert`/`force`), dry run (yes/no)                                        |
+| `/load-quests`      | Loads quest definitions from `GRADIENTBANG_QUEST_DATA_DIR` (`data/quests` by default) into Supabase.                                      | Mode (`upsert`/`force`), dry run (yes/no)                                        |
 | `/character-create` | Creates a new game character via the `user_character_create` edge function.                                                               | Email, password, character name (all prompted)                                   |
 | `/byoa-link`        | Onboards a BYOA operator: claims a corp ship, generates a per-ship wake secret, and writes `.env.byoa`.                                   | Environment (`local`/`prod`)                                                     |
 | `/byoa-unlink`      | Releases a BYOA-claimed corp ship — calls `ship_byoa_configure { action: "clear" }` to null the owner server-side. Can fail if unclaiming would put the purchaser over `CORPORATION_SHIP_OWNER_CAP`. | Environment (`local`/`prod`), optional `--ship-id`, `--clear-env`                |

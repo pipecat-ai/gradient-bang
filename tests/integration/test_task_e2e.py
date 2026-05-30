@@ -18,7 +18,7 @@ from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallParams
 
-from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+from gradientbang.runtime.subagents.task_agent import TaskAgent
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 from .e2e_harness import E2EHarness, EdgeAPI, ScriptedLLMService
@@ -52,7 +52,7 @@ class TestTaskLifecycleE2E:
         self.make_game_client = make_game_client
 
     async def test_task_start_and_complete(self):
-        """Start a task via VoiceAgent, verify it runs and completes."""
+        """Start a task via Orchestrator, verify it runs and completes."""
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         await h.start()
         try:
@@ -64,7 +64,7 @@ class TestTaskLifecycleE2E:
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "Check my status"}
             params.result_callback = AsyncMock()
-            result = await h.voice_agent._handle_start_task(params)
+            result = await h.orchestrator._handle_start_task(params)
 
             assert result["success"] is True, f"start_task failed: {result}"
 
@@ -72,7 +72,7 @@ class TestTaskLifecycleE2E:
             completed = await h.wait_for_task_complete(timeout=30.0)
             assert completed, "Task did not complete within timeout"
 
-            # VoiceAgent should have received task completion in LLM context
+            # Orchestrator should have received task completion in LLM context
             completion_msgs = [
                 c for c, _ in h.llm_messages if "task.completed" in c
             ]
@@ -100,7 +100,7 @@ class TestTaskLifecycleE2E:
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "Check status"}
             params.result_callback = AsyncMock()
-            result = await h.voice_agent._handle_start_task(params)
+            result = await h.orchestrator._handle_start_task(params)
 
             assert result["success"] is True
 
@@ -174,7 +174,7 @@ class TestCombatTaskInteractionE2E:
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "Long running task"}
             params.result_callback = AsyncMock()
-            result = await h.voice_agent._handle_start_task(params)
+            result = await h.orchestrator._handle_start_task(params)
 
             assert result["success"] is True
 
@@ -183,7 +183,7 @@ class TestCombatTaskInteractionE2E:
             await h.poll_and_feed_events()
 
             # Verify task is running
-            assert len(h.voice_agent._task_groups) > 0, "Task should be active"
+            assert len(h.orchestrator._task_groups) > 0, "Task should be active"
 
             # Inject combat event with player as participant
             await h.inject_combat_event(
@@ -196,13 +196,13 @@ class TestCombatTaskInteractionE2E:
 
             # Player task should be cancelled
             player_tasks = [
-                c for c in h.voice_agent.children
+                c for c in h.orchestrator.children
                 if isinstance(c, TaskAgent) and not c._is_corp_ship
             ]
             # Task group should be removed (cancelled)
-            assert len(h.voice_agent._task_groups) == 0, (
+            assert len(h.orchestrator._task_groups) == 0, (
                 f"Player task should be cancelled by combat. "
-                f"Active groups: {list(h.voice_agent._task_groups.keys())}"
+                f"Active groups: {list(h.orchestrator._task_groups.keys())}"
             )
         finally:
             await h.stop()
@@ -369,7 +369,7 @@ class TestAsyncCompletionE2E:
             task_agent = None
             for _ in range(40):
                 task_agent = next(
-                    (c for c in h.voice_agent.children if isinstance(c, TaskAgent)),
+                    (c for c in h.orchestrator.children if isinstance(c, TaskAgent)),
                     None,
                 )
                 if task_agent and task_agent._active_task_id:
@@ -388,7 +388,7 @@ class TestAsyncCompletionE2E:
 
             completed = await h.wait_for_task_complete(timeout=5.0)
             assert completed, "Task should fail cleanly instead of hanging"
-            assert not h.voice_agent._task_groups, "Failed task group should be removed"
+            assert not h.orchestrator._task_groups, "Failed task group should be removed"
 
             failed_task_outputs = [
                 event
@@ -493,7 +493,7 @@ class TestAsyncCompletionE2E:
 
             # Find the task agent
             task_agent = next(
-                (c for c in h.voice_agent.children if isinstance(c, TaskAgent)),
+                (c for c in h.orchestrator.children if isinstance(c, TaskAgent)),
                 None,
             )
 
@@ -537,7 +537,7 @@ class TestAsyncCompletionE2E:
             params.result_callback = AsyncMock()
 
             baseline_llm_count = len(h.llm_messages)
-            await h.voice_agent._handle_my_status(params)
+            await h.orchestrator._handle_my_status(params)
             direct_request_id = h.game_client.last_request_id
             assert direct_request_id, "voice my_status did not record a request_id"
 
@@ -613,14 +613,14 @@ class TestTaskCancellationE2E:
 
             # Wait for task group to appear (pipeline build is async)
             for _ in range(40):
-                if h.voice_agent._task_groups:
+                if h.orchestrator._task_groups:
                     break
                 await asyncio.sleep(0.05)
-            assert len(h.voice_agent._task_groups) > 0, "Task should be active"
+            assert len(h.orchestrator._task_groups) > 0, "Task should be active"
 
             # Find the TaskAgent's game-level task_id
             task_agent = next(
-                (c for c in h.voice_agent.children if isinstance(c, TaskAgent) and not c._is_corp_ship),
+                (c for c in h.orchestrator.children if isinstance(c, TaskAgent) and not c._is_corp_ship),
                 None,
             )
             assert task_agent is not None, "TaskAgent child should exist"
@@ -641,7 +641,7 @@ class TestTaskCancellationE2E:
             })
             assert cancel_result.get("task_id") == game_task_id
 
-            # Poll events: brings task.cancel through relay → VoiceAgent.broadcast_game_event
+            # Poll events: brings task.cancel through relay → Orchestrator.broadcast_game_event
             await h.poll_and_feed_events()
 
             # Open the gate so cleanup can proceed
@@ -649,11 +649,11 @@ class TestTaskCancellationE2E:
             await asyncio.sleep(1.0)
 
             # Task group should be cleaned up
-            assert len(h.voice_agent._task_groups) == 0, (
-                f"Task should be cancelled. Active groups: {list(h.voice_agent._task_groups.keys())}"
+            assert len(h.orchestrator._task_groups) == 0, (
+                f"Task should be cancelled. Active groups: {list(h.orchestrator._task_groups.keys())}"
             )
 
-            # VoiceAgent LLM should have task.cancelled (not task.failed)
+            # Orchestrator LLM should have task.cancelled (not task.failed)
             cancelled_msgs = [c for c, _ in h.llm_messages if "task.cancelled" in c]
             failed_msgs = [c for c, _ in h.llm_messages if "task.failed" in c]
             assert len(cancelled_msgs) >= 1, (
@@ -698,7 +698,7 @@ class TestTaskTimeoutE2E:
         """A short timeout fires internally and cancels the task via the framework."""
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         # Set a 5-second timeout (override env var)
-        h.voice_agent._task_agent_timeout = 5.0
+        h.orchestrator._task_agent_timeout = 5.0
         await h.start()
         try:
             await h.join_game()
@@ -711,10 +711,10 @@ class TestTaskTimeoutE2E:
 
             # Wait for task group to appear (pipeline build is async)
             for _ in range(40):
-                if h.voice_agent._task_groups:
+                if h.orchestrator._task_groups:
                     break
                 await asyncio.sleep(0.05)
-            assert len(h.voice_agent._task_groups) > 0, "Task should be active"
+            assert len(h.orchestrator._task_groups) > 0, "Task should be active"
 
             # Wait for the 5-second timeout to fire (framework-internal asyncio timer)
             await asyncio.sleep(6.0)
@@ -724,11 +724,11 @@ class TestTaskTimeoutE2E:
             await asyncio.sleep(1.0)
 
             # Task group should be cleaned up
-            assert len(h.voice_agent._task_groups) == 0, (
-                f"Task should be cancelled by timeout. Active groups: {list(h.voice_agent._task_groups.keys())}"
+            assert len(h.orchestrator._task_groups) == 0, (
+                f"Task should be cancelled by timeout. Active groups: {list(h.orchestrator._task_groups.keys())}"
             )
 
-            # VoiceAgent LLM should have task.cancelled (not task.failed)
+            # Orchestrator LLM should have task.cancelled (not task.failed)
             cancelled_msgs = [c for c, _ in h.llm_messages if "task.cancelled" in c]
             failed_msgs = [c for c, _ in h.llm_messages if "task.failed" in c]
             assert len(cancelled_msgs) >= 1, (
@@ -761,7 +761,7 @@ class TestFullVoiceLoopE2E:
 
     async def test_list_known_ports_returns_payload_inline(self):
         """Edge function returns the full port payload in the HTTP response body
-        so the VoiceAgent can consume it as a direct-response tool.
+        so the Orchestrator can consume it as a direct-response tool.
 
         Also verifies the matching ports.list event still lands on the bus
         (TaskAgent's ASYNC_TOOL_COMPLETIONS waits on it) but is NOT appended
@@ -860,7 +860,7 @@ class TestInferenceCoalescingE2E:
     async def test_n_simultaneous_completions_are_silent_when_deferred(self):
         """Deferred completion frames are appended without emitting an LLMRunFrame.
 
-        The recent VoiceAgent changes intentionally strip run_llm from deferred
+        The recent Orchestrator changes intentionally strip run_llm from deferred
         event frames. The tool result gets its own inference; deferred task
         completions should not inject an extra one here.
         """
@@ -876,7 +876,7 @@ class TestInferenceCoalescingE2E:
                 (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "task.completed 3"}], run_llm=True), FrameDirection.DOWNSTREAM),
             ]
 
-            result = await h.voice_agent.process_deferred_tool_frames(frames)
+            result = await h.orchestrator.process_deferred_tool_frames(frames)
 
             run_frames = [f for f, _ in result if isinstance(f, LLMRunFrame)]
             remaining_run_llm = [f for f, _ in result if isinstance(f, LLMMessagesAppendFrame) and f.run_llm]
@@ -895,17 +895,17 @@ class TestInferenceCoalescingE2E:
 
 
 @pytest.mark.integration
-class TestVoiceAgentErrorIsolationE2E:
-    """VoiceAgent tool errors must not bleed into TaskAgent completion tracking.
+class TestOrchestratorErrorIsolationE2E:
+    """Orchestrator tool errors must not bleed into TaskAgent completion tracking.
 
     Regression: synthesized error events (e.g. my_status → 409 in hyperspace)
     were broadcast unconditionally to all TaskAgents via the bus. A TaskAgent
     waiting on _awaiting_completion_event would treat any error as its own
     completion signal, clearing the wait and triggering premature inference.
 
-    Fix: EventRelay stamps BusGameEventMessage with voice_agent_originated=True
+    Fix: EventRelay stamps BusGameEventMessage with orchestrator_originated=True
     when an error has a source.request_id (always true for synthesized errors,
-    since all errors through EventRelay come from VoiceAgent's game_client).
+    since all errors through EventRelay come from Orchestrator's game_client).
     TaskAgent discards those without touching its state.
     """
 
@@ -919,7 +919,7 @@ class TestVoiceAgentErrorIsolationE2E:
     async def test_voice_error_does_not_unblock_task_async_wait(self):
         """Synthesized voice-agent error must not clear _awaiting_completion_event.
 
-        Scenario: TaskAgent is waiting for movement.complete. VoiceAgent calls
+        Scenario: TaskAgent is waiting for movement.complete. Orchestrator calls
         my_status directly and gets a 409 (character in hyperspace). The resulting
         synthesized error event is broadcast to the bus. TaskAgent must ignore it
         and remain blocked on movement.complete — not proceed with inference.
@@ -939,7 +939,7 @@ class TestVoiceAgentErrorIsolationE2E:
             task_agent = None
             for _ in range(40):
                 task_agent = next(
-                    (c for c in h.voice_agent.children if isinstance(c, TaskAgent)),
+                    (c for c in h.orchestrator.children if isinstance(c, TaskAgent)),
                     None,
                 )
                 if task_agent and task_agent._active_task_id:
@@ -953,10 +953,10 @@ class TestVoiceAgentErrorIsolationE2E:
             initial_error_count = task_agent._consecutive_error_count
 
             # Inject an error event matching the real server structure when
-            # VoiceAgent's my_status fails (e.g. character is in hyperspace).
+            # Orchestrator's my_status fails (e.g. character is in hyperspace).
             # Critically: the real server event includes player.id, which would
             # match the character-scoped filter and bypass the ambient-error guard
-            # if voice_agent_originated were not checked first.
+            # if orchestrator_originated were not checked first.
             voice_error_event = {
                 "event_name": "error",
                 "payload": {
@@ -976,13 +976,13 @@ class TestVoiceAgentErrorIsolationE2E:
 
             # TaskAgent must still be waiting — error must not have unblocked it
             assert task_agent._awaiting_completion_event == "movement.complete", (
-                "TaskAgent._awaiting_completion_event was cleared by a VoiceAgent error. "
+                "TaskAgent._awaiting_completion_event was cleared by a Orchestrator error. "
                 f"Got: {task_agent._awaiting_completion_event!r}"
             )
 
             # Error must not be counted against the TaskAgent's consecutive error limit
             assert task_agent._consecutive_error_count == initial_error_count, (
-                f"VoiceAgent error incremented TaskAgent._consecutive_error_count. "
+                f"Orchestrator error incremented TaskAgent._consecutive_error_count. "
                 f"Before: {initial_error_count}, After: {task_agent._consecutive_error_count}"
             )
         finally:

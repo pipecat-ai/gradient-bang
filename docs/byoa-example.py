@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from gradientbang.byoa import ByoaApp, ByoaContext
+from gradientbang.runtime.byoa import ByoaApp, ByoaContext
 
 
 app = ByoaApp()
@@ -63,8 +63,9 @@ def on_session_end(ctx: ByoaContext) -> None:
 
 # Optional: override model construction.
 #
-# Leave this commented to use TASK_LLM_PROVIDER, TASK_LLM_MODEL, and the
-# matching provider API key from `.env.byoa` or your Vercel project env.
+# Leave this commented to use TASK_LLM_PROVIDER, TASK_LLM_MODEL,
+# TASK_LLM_THINKING_BUDGET, and the matching provider API key from
+# `.env.byoa` or your Vercel project env.
 #
 # @app.llm
 # def build_llm(ctx: ByoaContext):
@@ -75,7 +76,7 @@ def on_session_end(ctx: ByoaContext) -> None:
 #
 #     return OpenAILLMService(
 #         api_key=os.environ["OPENAI_API_KEY"],
-#         model="gpt-4.1-mini",
+#         settings=OpenAILLMService.Settings(model="gpt-4.1-mini"),
 #     )
 
 

@@ -4,7 +4,7 @@ import pytest
 
 from pipecat.frames.frames import LLMMessagesAppendFrame
 
-from gradientbang.pipecat_server.inference_gate import (
+from gradientbang.runtime.inference_gate import (
     InferenceGateState,
     PreLLMInferenceGate,
 )

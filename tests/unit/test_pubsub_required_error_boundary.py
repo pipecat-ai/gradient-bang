@@ -9,7 +9,7 @@ SESSION_PUBSUB_MIGRATION = (
     ROOT / "deployment/supabase/migrations/20260515020000_session_scoped_event_pubsub.sql"
 )
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
-BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
+ORCHESTRATOR_PY = ROOT / "src/gradientbang/runtime/orchestrator.py"
 BUS_MIGRATION = ROOT / "deployment/supabase/migrations/20260512000000_byoa_infrastructure.sql"
 
 
@@ -117,19 +117,19 @@ def test_emit_error_event_is_log_only() -> None:
 
 
 def test_bot_session_queue_bootstrap_order_and_catchup_replay() -> None:
-    source = BOT_PY.read_text(encoding="utf-8")
+    source = ORCHESTRATOR_PY.read_text(encoding="utf-8")
 
-    join_body = source.split("async def _join():", 1)[1].split(
-        "except Exception as exc:", 1
+    join_body = source.split("async def join(self) -> None:", 1)[1].split(
+        "async def _emit_client_event", 1
     )[0]
-    prepare = join_body.index("await game_client.prepare_event_delivery_for_bootstrap()")
+    prepare = join_body.index("await self.game_client.prepare_event_delivery_for_bootstrap()")
     gather = join_body.index("initial_state = await gather_initial_state")
-    complete = join_body.index("await game_client.complete_event_delivery_bootstrap()")
-    activate = join_body.index("await main_agent.activate_agent(")
-    replay = join_body.index("await game_client.replay_event_delivery_catchup()")
-    start_delivery = join_body.index("await game_client.start_event_delivery()")
+    complete = join_body.index("await self.game_client.complete_event_delivery_bootstrap()")
+    inject_messages = join_body.index("await self.voice_worker.queue_frames")
+    replay = join_body.index("await self.game_client.replay_event_delivery_catchup()")
+    start_delivery = join_body.index("await self.game_client.start_event_delivery()")
 
-    assert prepare < gather < complete < activate < replay < start_delivery
+    assert prepare < gather < complete < inject_messages < replay < start_delivery
 
 
 def test_bus_migration_still_owns_only_bus_wrappers() -> None:

@@ -147,10 +147,10 @@ Path: `--out` value, or `<main-repo-root>/.env.byoa` if not provided. **Never wr
 Resolve the main repo root with `git rev-parse --path-format=absolute --git-common-dir` — its parent is the main worktree root whether the caller is in the main checkout or a linked worktree. The `env.byoa.example` template also lives at that root.
 
 ```bash
-REPO_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-OUT_PATH="${OUT_OVERRIDE:-$REPO_ROOT/.env.byoa}"
+PROJECT_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+OUT_PATH="${OUT_OVERRIDE:-$PROJECT_ROOT/.env.byoa}"
 umask 077
-cp "$REPO_ROOT/env.byoa.example" "$OUT_PATH"
+cp "$PROJECT_ROOT/env.byoa.example" "$OUT_PATH"
 python3 - "$OUT_PATH" "<character_id>" "<ship_id>" "<wake_secret_hex>" <<'PY'
 import sys, pathlib
 path, char_id, ship_id, secret = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
