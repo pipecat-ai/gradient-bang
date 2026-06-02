@@ -49,10 +49,10 @@ class RuntimeWorker:
     async def send_bus_message(self, message) -> None:
         pass
 
-    async def add_workers(self, *workers) -> None:
+    async def add_workers(self, *workers, watch: bool = True) -> None:
         self._children.extend(workers)
 
-    async def watch_worker(self, worker_name: str) -> None:
+    async def watch_workers(self, *worker_names: str) -> None:
         pass
 
     async def cancel_job_group(self, job_id: str, *, reason: str | None = None) -> None:

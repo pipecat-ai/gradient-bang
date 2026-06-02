@@ -348,7 +348,7 @@ class ByoaCoordinator:
         BYOA workers are one-shot: each wake spawns a fresh child that
         advertises ready, runs one task, and exits. The framework
         registry is sticky (no public deregister API) so without this
-        helper a subsequent ``watch_worker`` synchronously fires
+        helper a subsequent ``watch_workers`` registration synchronously fires
         ``on_worker_ready`` against a dead child and blocks on its
         unanswerable hello handshake.
 

@@ -326,11 +326,14 @@ class Orchestrator:
 
     @require_voice_worker
     async def add_workers(self, voice_worker: PipelineWorker, *workers) -> None:
-        await voice_worker.add_workers(*workers)
+        # We explicitly watch below, after pending task state is installed.
+        # Pipecat 1.3 auto-watches by default, so opt out to avoid duplicate
+        # on_worker_ready callbacks.
+        await voice_worker.add_workers(*workers, watch=False)
 
     @require_voice_worker
     async def watch_worker(self, voice_worker: PipelineWorker, worker_name: str) -> None:
-        await voice_worker.watch_worker(worker_name)
+        await voice_worker.watch_workers(worker_name)
 
     @require_voice_worker
     async def cancel_job_group(

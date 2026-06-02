@@ -40,12 +40,12 @@ class _VoiceWorker:
     async def send_bus_message(self, message) -> None:
         self.calls.append(("send_bus_message", message))
 
-    async def add_workers(self, *workers) -> None:
+    async def add_workers(self, *workers, watch: bool = True) -> None:
         for worker in workers:
-            self.calls.append(("add_workers", worker))
+            self.calls.append(("add_workers", worker, watch))
 
-    async def watch_worker(self, worker_name: str) -> None:
-        self.calls.append(("watch_worker", worker_name))
+    async def watch_workers(self, *worker_names: str) -> None:
+        self.calls.append(("watch_workers", worker_names))
 
     async def cancel_job_group(self, job_id: str, *, reason: str | None = None) -> None:
         self.calls.append(("cancel_job_group", job_id, reason))
@@ -220,8 +220,8 @@ async def test_worker_host_facade_delegates_to_voice_worker() -> None:
 
     assert worker.calls == [
         ("send_bus_message", "message"),
-        ("add_workers", "worker"),
-        ("watch_worker", "task_123"),
+        ("add_workers", "worker", False),
+        ("watch_workers", ("task_123",)),
         ("cancel_job_group", "job-id", "done"),
         ("request_job_update", "job-id", "task_123"),
         ("create_task", ("coro",), {"name": "task-name"}),
