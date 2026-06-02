@@ -120,6 +120,8 @@ Optional:
 - [prompt.md](../deployment/vercel/prompt.md): optional prompt starting point.
 
 Most operators only edit `.env.byoa` and optionally `prompt.md`.
+Combat wake customization lives in the Python harness, so use a fork with
+[docs/byoa-example.py](byoa-example.py) when prompt-only behavior is not enough.
 
 ## Redeploys
 

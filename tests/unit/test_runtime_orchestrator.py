@@ -5,6 +5,7 @@ import pytest
 
 from gradientbang.config import PLAYER_AGENT_NAME
 from gradientbang.game.auth import Auth
+from gradientbang.runtime.bus import BusCombatWakeMessage
 from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.voice_runtime import VOICE_TOOL_HANDLERS
 from gradientbang.utils.prompt_loader import render_onboarding_task_context
@@ -239,3 +240,65 @@ async def test_worker_host_facade_requires_attached_worker() -> None:
         orch.create_task("coro")
     with pytest.raises(RuntimeError, match="voice worker is not attached"):
         await orch.send_bus_message("message")
+
+
+@pytest.mark.asyncio
+async def test_corp_combat_wake_sends_targeted_bus_message_for_active_ship() -> None:
+    orch = _orchestrator()
+    worker = _VoiceWorker()
+    _attach(orch, worker)
+    orch._task_output_handler = AsyncMock()
+    orch._locked_ships["corp-ship-1"] = "task-1"
+    orch._find_steer_target_by_ship = MagicMock(
+        return_value=SimpleNamespace(
+            framework_task_id="task-1",
+            agent_name="task_abc",
+            task_type="corp_ship",
+            ship_character_id="corp-ship-1",
+        )
+    )
+
+    await orch._wake_or_start_corp_ship_combat_task(
+        "corp-ship-1",
+        {
+            "combat_id": "cbt-1",
+            "round": 1,
+            "participants": [
+                {
+                    "id": "corp-ship-1",
+                    "name": "Hauler",
+                    "player_type": "corporation_ship",
+                    "corp_id": "corp-1",
+                },
+                {"id": "enemy-1", "name": "Raider"},
+            ],
+        },
+    )
+
+    sent = worker.calls[0][1]
+    assert isinstance(sent, BusCombatWakeMessage)
+    assert sent.target == "task_abc"
+    assert sent.task_id == "task-1"
+    assert "Combat has started" in sent.goal
+    assert "combat_id: cbt-1" in sent.context
+    orch._task_output_handler.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_corp_combat_wake_uses_start_task_for_idle_ship() -> None:
+    orch = _orchestrator()
+    orch._handle_start_task = AsyncMock(return_value={"success": True})
+
+    await orch._wake_or_start_corp_ship_combat_task(
+        "corp-ship-1",
+        {
+            "combat_id": "cbt-1",
+            "round": 1,
+            "participants": [{"id": "corp-ship-1", "name": "Hauler"}],
+        },
+    )
+
+    params = orch._handle_start_task.await_args.args[0]
+    assert params.arguments["ship_id"] == "corp-ship-1"
+    assert "Combat has started" in params.arguments["task_description"]
+    assert "combat_id: cbt-1" in params.arguments["context"]

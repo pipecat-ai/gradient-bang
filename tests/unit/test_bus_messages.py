@@ -21,6 +21,7 @@ from gradientbang.runtime.bus import (
     BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
+    BusCombatWakeMessage,
     BusCorporationQueryRequest,
     BusCorporationQueryResponse,
     BusGameEventMessage,
@@ -89,6 +90,17 @@ class TestExistingMessagesUnchanged:
                 target="task_abc",
                 task_id="t1",
                 text="go to sector 5",
+            )
+        )
+
+    def test_combat_wake_round_trip(self):
+        _round_trip(
+            BusCombatWakeMessage(
+                source="va",
+                target="task_abc",
+                task_id="t1",
+                goal="Fight now",
+                context="combat_id: cbt-1",
             )
         )
 
