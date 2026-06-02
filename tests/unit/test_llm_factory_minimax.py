@@ -62,7 +62,7 @@ class TestCreateMiniMaxService:
             with patch("pipecat.services.openai.llm.OpenAILLMService") as mock_cls:
                 mock_cls.return_value = MagicMock()
                 mock_cls.Settings = OpenAILLMService.Settings
-                _create_minimax_service(api_key="test-key", model="MiniMax-M2.7")
+                _create_minimax_service(api_key="test-key", model="MiniMax-M3")
                 mock_cls.assert_called_once()
                 _, kwargs = mock_cls.call_args
                 assert kwargs["api_key"] == "test-key"
@@ -76,14 +76,14 @@ class TestCreateMiniMaxService:
             with patch("pipecat.services.openai.llm.OpenAILLMService") as mock_cls:
                 mock_cls.return_value = MagicMock()
                 mock_cls.Settings = OpenAILLMService.Settings
-                _create_minimax_service(api_key="test-key", model="MiniMax-M2.7")
+                _create_minimax_service(api_key="test-key", model="MiniMax-M3")
                 _, kwargs = mock_cls.call_args
                 assert kwargs["base_url"] == "https://custom.minimax.io/v1"
 
     def test_default_temperature_is_1(self):
         """MiniMax does not accept temperature=0; default must be 1.0."""
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
-            service = _create_minimax_service(api_key="test-key", model="MiniMax-M2.7")
+            service = _create_minimax_service(api_key="test-key", model="MiniMax-M3")
             assert service._settings.temperature == 1.0
 
     def test_passes_function_call_timeout(self):
@@ -93,7 +93,7 @@ class TestCreateMiniMaxService:
             mock_cls.return_value = MagicMock()
             mock_cls.Settings = OpenAILLMService.Settings
             _create_minimax_service(
-                api_key="test-key", model="MiniMax-M2.7", function_call_timeout_secs=30.0
+                api_key="test-key", model="MiniMax-M3", function_call_timeout_secs=30.0
             )
             _, kwargs = mock_cls.call_args
             assert kwargs["function_call_timeout_secs"] == 30.0
@@ -104,7 +104,7 @@ class TestCreateLLMServiceMiniMax:
     def test_create_llm_service_routes_minimax(self):
         config = LLMServiceConfig(
             provider=LLMProvider.MINIMAX,
-            model="MiniMax-M2.7",
+            model="MiniMax-M3",
             api_key="test-key",
         )
         with patch(
@@ -112,7 +112,7 @@ class TestCreateLLMServiceMiniMax:
         ) as mock_minimax:
             mock_minimax.return_value = MagicMock()
             create_llm_service(config)
-            mock_minimax.assert_called_once_with("test-key", "MiniMax-M2.7", None)
+            mock_minimax.assert_called_once_with("test-key", "MiniMax-M3", None)
 
     def test_create_llm_service_minimax_with_timeout(self):
         config = LLMServiceConfig(
@@ -140,7 +140,7 @@ class TestMiniMaxDefaultModels:
             os.environ.pop("VOICE_LLM_MODEL", None)
             config = get_voice_llm_config()
         assert config.provider == LLMProvider.MINIMAX
-        assert config.model == "MiniMax-M2.7"
+        assert config.model == "MiniMax-M3"
 
     def test_task_llm_config_minimax_default_model(self):
         with patch.dict(
@@ -151,7 +151,7 @@ class TestMiniMaxDefaultModels:
             os.environ.pop("TASK_LLM_MODEL", None)
             config = get_task_agent_llm_config()
         assert config.provider == LLMProvider.MINIMAX
-        assert config.model == "MiniMax-M2.7"
+        assert config.model == "MiniMax-M3"
 
     def test_ui_agent_llm_config_minimax_default_model(self):
         with patch.dict(
@@ -162,7 +162,7 @@ class TestMiniMaxDefaultModels:
             os.environ.pop("UI_AGENT_LLM_MODEL", None)
             config = get_ui_agent_llm_config()
         assert config.provider == LLMProvider.MINIMAX
-        assert config.model == "MiniMax-M2.7"
+        assert config.model == "MiniMax-M3"
 
     def test_voice_llm_config_minimax_custom_model(self):
         with patch.dict(

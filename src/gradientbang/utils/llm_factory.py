@@ -464,7 +464,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
-        LLMProvider.MINIMAX: "MiniMax-M2.7",
+        LLMProvider.MINIMAX: "MiniMax-M3",
     }
 
     model = current.VOICE_LLM_MODEL or default_models[provider]
@@ -519,7 +519,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
-        LLMProvider.MINIMAX: "MiniMax-M2.7",
+        LLMProvider.MINIMAX: "MiniMax-M3",
     }
 
     model = current.TASK_LLM_MODEL or default_models[provider]
@@ -573,7 +573,7 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-haiku-4-5-20251001",
         LLMProvider.OPENAI: "gpt-4.1",
-        LLMProvider.MINIMAX: "MiniMax-M2.7",
+        LLMProvider.MINIMAX: "MiniMax-M3",
     }
     model = (
         current.UI_AGENT_LLM_MODEL
