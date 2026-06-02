@@ -68,6 +68,10 @@ declare global {
       fighters: number
       max_fighters: number
       current_task_id: string | null
+      current_task_actor?: {
+        character_id_prefix: string
+        character_name: string | null
+      } | null
       byoa?: Ship["byoa"] | null
     }>
     destroyed_ships?: DestroyedCorporationShip[]

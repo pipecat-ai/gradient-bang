@@ -94,6 +94,7 @@ from gradientbang.utils.event_ordering import (
     extract_event_id,
     sort_by_event_id_preserving_no_id_positions,
 )
+from gradientbang.utils.formatting import short_id
 from gradientbang.utils.llm_factory import create_llm_service, get_task_agent_llm_config
 from gradientbang.utils.prompt_loader import (
     AVAILABLE_TOPICS,
@@ -116,6 +117,17 @@ MAX_NO_TOOL_NUDGES = 3
 MAX_CONSECUTIVE_ERRORS = 3
 NO_TOOL_WATCHDOG_DELAY = 5.0
 BYOA_PRESENCE_HEARTBEAT_SECONDS = 10.0
+
+
+def _xml_escape_attr(value: Any) -> str:
+    """Escape XML attribute values used in synthetic task events."""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 # Tools with custom handler methods (not dispatched via schema)
 _SPECIAL_HANDLERS: Dict[str, str] = {
@@ -1786,8 +1798,26 @@ class TaskAgent(LLMWorker):
         # Single user message: task.steered event with the steer text inline.
         # This matches the event-message flow the task agent already reads,
         # with one short priority hint before the raw steer instruction.
+        metadata_ship_id = self._task_metadata.get("ship_id") if self._task_metadata else None
+        actor_ship_id = self._task_metadata.get("actor_ship_id") if self._task_metadata else None
+        event_ship_id = (
+            metadata_ship_id
+            if isinstance(metadata_ship_id, str) and metadata_ship_id
+            else self._character_id
+            if self._is_corp_ship
+            else actor_ship_id
+            if isinstance(actor_ship_id, str) and actor_ship_id
+            else None
+        )
+        ship_name = self._task_metadata.get("ship_name") if self._task_metadata else None
+        attrs = ['name="task.steered"']
+        short_ship_id = short_id(event_ship_id)
+        if short_ship_id:
+            attrs.append(f'ship_id="{_xml_escape_attr(short_ship_id)}"')
+        if isinstance(ship_name, str) and ship_name:
+            attrs.append(f'ship_name="{_xml_escape_attr(ship_name)}"')
         steered_xml = (
-            '<event name="task.steered">\n'
+            f"<event {' '.join(attrs)}>\n"
             "Steering update from commander. Apply it immediately; it supersedes "
             "conflicting parts of the original task.\n"
             f"{cleaned}\n"
@@ -2088,6 +2118,14 @@ class TaskAgent(LLMWorker):
         if not target or not self._active_task_id:
             return
         actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
+        metadata_ship_id = self._task_metadata.get("ship_id") if self._task_metadata else None
+        ship_id = (
+            str(metadata_ship_id)
+            if isinstance(metadata_ship_id, str) and metadata_ship_id
+            else self._character_id
+            if self._is_corp_ship
+            else ""
+        )
         try:
             await self.send_bus_message(
                 BusTaskFinishNotification(
@@ -2096,6 +2134,7 @@ class TaskAgent(LLMWorker):
                     character_id=self._character_id,
                     actor_character_id=str(actor) if isinstance(actor, str) else "",
                     task_id=self._active_task_id,
+                    ship_id=ship_id,
                     status=status,
                     summary=summary,
                 )

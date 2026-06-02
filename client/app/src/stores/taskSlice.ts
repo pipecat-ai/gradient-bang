@@ -11,9 +11,28 @@ import { ACTIVE_PANEL_REST_SECS } from "./uiSlice"
 // flashes a "Steering" label before returning to its normal active state.
 export const STEERING_FLASH_MS = 3000
 
+export type TaskOccupancySource = "live" | "snapshot"
+
+export interface ShipTaskOccupancy {
+  task_id: string
+  actor_name?: string | null
+  task_status?: ActiveTask["task_status"]
+  source: TaskOccupancySource
+}
+
+const normalizeTaskId = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+const taskIdsMatch = (left: string, right: string): boolean =>
+  left === right || left.startsWith(right) || right.startsWith(left)
+
 export interface TaskSlice {
   activeTasks: Record<string, ActiveTask>
   taskSummaries: Record<string, TaskSummary>
+  taskOccupancyByShipId: Record<string, ShipTaskOccupancy>
   corpSlotAssignments: (string | null)[]
   localTaskId: string | null
   taskOutputs: Record<string, TaskOutput[]>
@@ -25,6 +44,12 @@ export interface TaskSlice {
   addTaskOutput: (taskOutput: TaskOutput) => void
   getTaskOutputsByTaskId: (taskId: string) => TaskOutput[]
   removeTaskOutputsByTaskId: (taskId: string) => void
+  setShipTaskOccupancy: (shipId: string, occupancy: ShipTaskOccupancy) => void
+  clearShipTaskOccupancyByShipId: (shipId: string, source?: TaskOccupancySource) => void
+  clearShipTaskOccupancyByTaskId: (taskId: string) => void
+  hydrateShipTaskOccupancyFromSnapshot: (
+    ships: Array<Pick<Ship, "ship_id" | "current_task_id" | "current_task_actor">>
+  ) => void
   addActiveTask: (task: ActiveTask) => void
   markTaskActive: (taskId: string) => void
   removeActiveTask: (taskId: string) => void
@@ -41,6 +66,7 @@ export interface TaskSlice {
 export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   activeTasks: {},
   taskSummaries: {},
+  taskOccupancyByShipId: {},
   taskOutputs: {},
   steeringExpiresAt: {},
   corpSlotAssignments: [null, null, null],
@@ -89,6 +115,87 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
       })
     ),
 
+  setShipTaskOccupancy: (shipId: string, occupancy: ShipTaskOccupancy) => {
+    const taskId = normalizeTaskId(occupancy.task_id)
+    if (!shipId || !taskId) return
+    set(
+      produce((state) => {
+        const existing = state.taskOccupancyByShipId[shipId]
+        // Live task events are stronger than lagging server snapshots.
+        if (occupancy.source === "snapshot" && existing?.source === "live") {
+          return
+        }
+        state.taskOccupancyByShipId[shipId] = {
+          ...occupancy,
+          task_id: taskId,
+        }
+      })
+    )
+  },
+
+  clearShipTaskOccupancyByShipId: (shipId: string, source?: TaskOccupancySource) =>
+    set(
+      produce((state) => {
+        const existing = state.taskOccupancyByShipId[shipId]
+        if (!existing) return
+        if (source && existing.source !== source) return
+        delete state.taskOccupancyByShipId[shipId]
+      })
+    ),
+
+  clearShipTaskOccupancyByTaskId: (taskId: string) => {
+    const normalized = normalizeTaskId(taskId)
+    if (!normalized) return
+    set(
+      produce((state) => {
+        for (const [shipId, occupancy] of Object.entries(state.taskOccupancyByShipId)) {
+          if (taskIdsMatch(occupancy.task_id, normalized)) {
+            delete state.taskOccupancyByShipId[shipId]
+          }
+        }
+      })
+    )
+  },
+
+  hydrateShipTaskOccupancyFromSnapshot: (ships) =>
+    set(
+      produce((state) => {
+        const isTerminal = (taskId: string): boolean =>
+          Object.keys(state.taskSummaries).some((summaryTaskId) =>
+            taskIdsMatch(summaryTaskId, taskId)
+          )
+
+        for (const ship of ships) {
+          const shipId = ship.ship_id
+          const taskId = normalizeTaskId(ship.current_task_id)
+          if (!shipId) continue
+
+          if (!taskId) {
+            const existing = state.taskOccupancyByShipId[shipId]
+            if (existing?.source === "snapshot") {
+              delete state.taskOccupancyByShipId[shipId]
+            }
+            continue
+          }
+
+          if (isTerminal(taskId)) continue
+
+          const existing = state.taskOccupancyByShipId[shipId]
+          if (existing?.source === "live" && !taskIdsMatch(existing.task_id, taskId)) {
+            continue
+          }
+
+          const actorName = ship.current_task_actor?.character_name ?? null
+          state.taskOccupancyByShipId[shipId] = {
+            task_id: existing?.source === "live" ? existing.task_id : taskId,
+            actor_name: existing?.actor_name ?? actorName,
+            task_status: existing?.task_status ?? "active",
+            source: existing?.source ?? "snapshot",
+          }
+        }
+      })
+    ),
+
   addActiveTask: (task: ActiveTask) => {
     set(
       produce((state) => {
@@ -125,6 +232,11 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         if (task) {
           task.task_status = "active"
         }
+        for (const occupancy of Object.values(state.taskOccupancyByShipId)) {
+          if (taskIdsMatch(occupancy.task_id, taskId)) {
+            occupancy.task_status = "active"
+          }
+        }
       })
     ),
 
@@ -141,6 +253,11 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         // must flip straight to its terminal state rather than linger on
         // "Steering" for the remainder of the flash window.
         delete state.steeringExpiresAt[taskId]
+        for (const [shipId, occupancy] of Object.entries(state.taskOccupancyByShipId)) {
+          if (taskIdsMatch(occupancy.task_id, taskId)) {
+            delete state.taskOccupancyByShipId[shipId]
+          }
+        }
       })
     ),
 
@@ -290,3 +407,8 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
     )
   },
 })
+
+export const selectShipTaskOccupancy = (
+  state: Pick<TaskSlice, "taskOccupancyByShipId">,
+  shipId: string
+) => state.taskOccupancyByShipId[shipId]

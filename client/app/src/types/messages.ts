@@ -503,6 +503,10 @@ export interface CorporationInfoShip {
   fighters: number
   max_fighters: number
   current_task_id: string | null
+  current_task_actor?: {
+    character_id_prefix: string
+    character_name: string | null
+  } | null
 }
 
 export interface CorporationInfoMessage extends ServerMessagePayload {
