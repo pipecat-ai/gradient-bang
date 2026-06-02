@@ -1715,9 +1715,18 @@ class TaskAgent(LLMWorker):
         cleaned = text.strip()
         if not cleaned:
             return
-        message = {"role": "user", "content": cleaned}
+        # Single user message: task.steered event with the steer text inline.
+        # This matches the event-message flow the task agent already reads,
+        # with one short priority hint before the raw steer instruction.
+        steered_xml = (
+            '<event name="task.steered">\n'
+            "Steering update from commander. Apply it immediately; it supersedes "
+            "conflicting parts of the original task.\n"
+            f"{cleaned}\n"
+            "</event>"
+        )
         if self._llm_context is not None:
-            self._llm_context.add_message(message)
+            self._llm_context.add_message({"role": "user", "content": steered_xml})
         self._output(cleaned, TaskOutputType.INPUT)
 
         # Interrupt idle wait so the LLM can act on steering immediately

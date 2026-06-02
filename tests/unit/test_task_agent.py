@@ -678,7 +678,9 @@ class TestSteering:
         await agent.on_bus_message(msg)
 
         agent._llm_context.add_message.assert_called_once()
-        assert "Change direction" in agent._llm_context.add_message.call_args[0][0]["content"]
+        content = agent._llm_context.add_message.call_args[0][0]["content"]
+        assert '<event name="task.steered">' in content
+        assert "Change direction" in content
 
     async def test_steering_for_other_target_ignored(self):
         from gradientbang.runtime.bus import BusSteerTaskMessage
@@ -966,6 +968,16 @@ class TestSyntheticProgressMessages:
             "Replanning with new instructions...",
         ]
         agent.queue_frame.assert_awaited_once()
+
+        # Single user message: task.steered event with steer text inside.
+        agent._llm_context.add_message.assert_called_once()
+        injected = agent._llm_context.add_message.call_args.args[0]
+        assert injected["role"] == "user"
+        assert injected["content"].startswith('<event name="task.steered">')
+        assert "Steering update from commander" in injected["content"]
+        assert "supersedes conflicting parts of the original task" in injected["content"]
+        assert "Change direction" in injected["content"]
+        assert injected["content"].endswith("Change direction\n</event>")
 
     async def test_duplicate_progress_message_is_suppressed_without_new_action_or_event(self):
         agent = _make_task_agent()

@@ -2666,6 +2666,51 @@ class Orchestrator:
 
     @traced
     async def _handle_start_task(self, params: FunctionCallParams) -> dict:
+        """Entrypoint: tries once, waits + retries inline if the slot is closing.
+
+        The wait+retry is invisible to the LLM — only the final result
+        reaches the tool wrapper. The auto-steer in `_handle_start_task_attempt`
+        bubbles up `task_closing` when the steer would race a terminal turn;
+        here we poll for the lock to release and re-run the attempt cleanly.
+        Timeout is `settings.TASK_STEER_CLOSING_WAIT_SECONDS`.
+        """
+        result = await self._handle_start_task_attempt(params)
+        if result.get("error") != "task_closing":
+            return result
+        ship_id = result.get("ship_character_id")
+        timeout = float(settings.TASK_STEER_CLOSING_WAIT_SECONDS)
+        if isinstance(ship_id, str) and ship_id and await self._wait_for_ship_release(
+            ship_id, timeout=timeout
+        ):
+            return await self._handle_start_task_attempt(params)
+        return {
+            "success": False,
+            "error": "task_closing_timeout",
+            "message": (
+                f"Active task did not finish within {timeout:.0f}s. "
+                "Try again in a moment."
+            ),
+            "ship_character_id": ship_id,
+        }
+
+    async def _wait_for_ship_release(
+        self, ship_character_id: str, *, timeout: float
+    ) -> bool:
+        """Poll `_locked_ships` until the lock is released or `timeout` elapses.
+
+        Returns True if released. The lock is cleared by the normal
+        on_job_response / task.finish handlers, so this works for both
+        in-process and BYOA agents.
+        """
+        deadline = time.monotonic() + timeout
+        while ship_character_id in self._locked_ships:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            await asyncio.sleep(min(0.1, remaining))
+        return True
+
+    async def _handle_start_task_attempt(self, params: FunctionCallParams) -> dict:
         async with self._start_task_lock:
             agent_name = None
             target_character_id = None
@@ -2712,26 +2757,43 @@ class Orchestrator:
                 target_character_id = ship_id if ship_id else self._character_id
 
                 # Phase: existing-task routing.
-                # If this ship already has an active task, route the new
-                # instruction into the existing steering path instead of
-                # starting a fresh task. This preserves in-flight progress
-                # (navigation, trade, combat) and reuses the BusSteerTaskMessage
-                # primitive the `steer_task` tool uses.
+                # If this ship already has an active task, auto-steer the new
+                # instruction into the running task. The TaskAgent wraps the
+                # steer in a task.steered event with a short priority hint so
+                # it outranks the original task instruction (see
+                # TaskAgent._inject_steering). If the active task is already
+                # finishing, the steer would race the terminal turn and
+                # silently drop — `_steer_existing_task` returns `task_closing`
+                # and the public `_handle_start_task` waits + retries inline.
                 if target_character_id in self._locked_ships:
                     active_target = self._find_steer_target_by_ship(target_character_id)
                     if active_target is not None:
                         steer_text = task_desc
                         if isinstance(explicit_context, str) and explicit_context.strip():
                             steer_text = f"{task_desc}\n\nContext: {explicit_context.strip()}"
-                        return await self._steer_existing_task(
+                        steer_result = await self._steer_existing_task(
                             active_target,
                             steer_text,
                             summary="Task already running; steered with new instructions.",
                         )
+                        if steer_result.get("error") == "task_closing":
+                            # Bubble up unchanged so the wrapper waits for the
+                            # slot to free up and retries cleanly.
+                            return {
+                                "success": False,
+                                "error": "task_closing",
+                                "ship_character_id": target_character_id,
+                            }
+                        return steer_result
                     # Lock is held but the active child is unavailable.
                     return {
                         "success": False,
-                        "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
+                        "error": "ship_busy",
+                        "message": (
+                            f"Ship {target_character_id[:8]}... lock is held but no active "
+                            "task agent is reachable. Try stop_task or wait."
+                        ),
+                        "ship_character_id": target_character_id,
                     }
 
                 # Phase: policy checks.
@@ -3015,8 +3077,42 @@ class Orchestrator:
         steering_text = text.strip()
         if not steering_text:
             return {"success": False, "error": "Empty steering instruction"}
-        if not steering_text.lower().startswith("steering instruction:"):
-            steering_text = f"Steering instruction: {steering_text}"
+        # No "Steering instruction:" prefix here — TaskAgent wraps the text
+        # in a task.steered event before injecting into LLM context (see
+        # TaskAgent._inject_steering).
+
+        # Pre-flight: if the target in-process TaskAgent is in a finishing
+        # state, the steer would race the terminal turn and silently drop.
+        # Return a task_closing directive so the voice LLM chains a fresh
+        # start_task in the same turn (silently — the wrapper avoids the
+        # speech cycle for this failure code). BYOA targets skip the check
+        # (orchestrator has no local liveness state for them); the existing
+        # ship_busy path covers the most common race anyway.
+        target_child = next(
+            (
+                c
+                for c in self._children
+                if isinstance(c, TaskAgent) and c.name == target.agent_name
+            ),
+            None,
+        )
+        if target_child is not None and (
+            target_child._task_finished
+            or target_child._cancelled
+            or target_child._finish_emitted
+        ):
+            return {
+                "success": False,
+                "error": "task_closing",
+                "retry_with": "start_task",
+                "message": (
+                    "Task was already finishing; the steer would not land. "
+                    "Call start_task to issue this as a fresh task."
+                ),
+                "task_id": target.framework_task_id,
+                "task_type": target.task_type,
+                "ship_character_id": target.ship_character_id,
+            }
 
         await self.send_bus_message(
             BusSteerTaskMessage(
@@ -3212,44 +3308,43 @@ class Orchestrator:
     # ── Task management tool wrappers ─────────────────────────────────
 
     async def _handle_start_task_tool(self, params: FunctionCallParams):
-        # Busy-ship handling is now inside `_handle_start_task`, which routes
-        # the request into the steering path instead of rejecting.
         result = await self._handle_start_task(params)
         await params.result_callback(
             {"result": result},
             properties=FunctionCallResultProperties(run_llm=False),
         )
-        if result.get("success"):
-            task_id = str(result.get("task_id", "")).strip()
-            task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
-            steered = bool(result.get("steered"))
-            ship_character_id = result.get("ship_character_id")
-            summary = (
-                str(result.get("message") or result.get("summary") or "Task started").strip()
-                or "Task started"
-            )
+        if not result.get("success"):
+            return
+        task_id = str(result.get("task_id", "")).strip()
+        task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
+        steered = bool(result.get("steered"))
+        ship_character_id = result.get("ship_character_id")
+        summary = (
+            str(result.get("message") or result.get("summary") or "Task started").strip()
+            or "Task started"
+        )
 
-            # If the user is queueing a new task on a ship that has a pending
-            # task.completed in the deferred queue, fold that completion into
-            # context silently — the new command itself signals that the player
-            # has moved on, regardless of turn count.
-            if isinstance(ship_character_id, str) and ship_character_id:
-                await self._silent_flush_for_ship(ship_character_id)
+        # If the user is queueing a new task on a ship that has a pending
+        # task.completed in the deferred queue, fold that completion into
+        # context silently — the new command itself signals that the player
+        # has moved on, regardless of turn count.
+        if isinstance(ship_character_id, str) and ship_character_id:
+            await self._silent_flush_for_ship(ship_character_id)
 
-            event_name = "task.steered" if steered else "task.started"
-            attrs = [f'name="{event_name}"']
-            if task_id:
-                attrs.append(f'task_id="{task_id}"')
-            attrs.append(f'task_type="{task_type}"')
-            event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
-            # Drive the post-tool assistant turn through the same deferred
-            # LLMRunFrame path used by stop_task / steer_task. This is what
-            # clears the client's "thinking" state now that the voice LLM
-            # lives in the main pipeline.
-            await self._inject_context(
-                [{"role": "user", "content": event_xml}],
-                run_llm=True,
-            )
+        event_name = "task.steered" if steered else "task.started"
+        attrs = [f'name="{event_name}"']
+        if task_id:
+            attrs.append(f'task_id="{task_id}"')
+        attrs.append(f'task_type="{task_type}"')
+        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        # Drive the post-tool assistant turn through the same deferred
+        # LLMRunFrame path used by stop_task / steer_task. This is what
+        # clears the client's "thinking" state now that the voice LLM
+        # lives in the main pipeline.
+        await self._inject_context(
+            [{"role": "user", "content": event_xml}],
+            run_llm=True,
+        )
 
     async def _handle_stop_task_tool(self, params: FunctionCallParams):
         result = await self._handle_stop_task(params)
@@ -3293,6 +3388,13 @@ class Orchestrator:
     async def _handle_steer_task_tool(self, params: FunctionCallParams):
         result = await self._handle_steer_task(params)
         if isinstance(result, dict) and result.get("success") is False:
+            # task_closing is a silent retry signal: surface the full result
+            # (with retry_with directive) so the voice LLM chains a fresh
+            # start_task in the same turn without speaking about the failed
+            # steer. No assistant response cycle, no run_llm forcing.
+            if result.get("error") == "task_closing":
+                await params.result_callback({"result": result})
+                return
             self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"error": result.get("error", "Request failed.")},

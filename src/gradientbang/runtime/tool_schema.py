@@ -1088,10 +1088,9 @@ START_TASK = FunctionSchema(
         "Start a complex multi-step task for navigation, trading, or exploration. "
         "Can control your own ship or a corporation ship. "
         "If a task is already running on the target ship, this call steers the "
-        "existing task with the new description instead of starting a fresh one — "
-        "the running task keeps its in-flight progress and reassesses with the "
-        "new instructions on its next turn. Use stop_task explicitly if you need "
-        "a clean slate."
+        "existing task with the new description (priority-wrapped, so the running "
+        "task reassesses its plan with the new instruction on its next turn). Use "
+        "stop_task explicitly if you need a clean slate."
     ),
     properties={
         "task_description": {
@@ -1130,7 +1129,13 @@ STOP_TASK = FunctionSchema(
 
 STEER_TASK = FunctionSchema(
     name="steer_task",
-    description="Send a steering instruction to a running task.",
+    description=(
+        "Send a steering instruction to a running task — the TaskAgent treats "
+        "the instruction as a priority override of its original task. "
+        "If the task is already finishing, this returns error='task_closing' "
+        "with retry_with='start_task'; silently re-issue as start_task in the "
+        "same turn."
+    ),
     properties={
         "task_id": {
             "type": "string",

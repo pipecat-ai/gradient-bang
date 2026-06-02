@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `TaskAgent._inject_steering` now injects steer text as a single `<event name="task.steered">` user message with a short priority line followed by the raw steer text inline. Same event-xml shape as `task.progress` / `task.cancelled` the agent already reads — without it, the steer was just another peer instruction to the original task description (which is itself a plain user message). Orchestrator side drops its now-redundant `"Steering instruction: "` text prefix.
+- `start_task` and `steer_task` now pre-flight the target's finishing state. If the in-process TaskAgent has already called `finished` (or been cancelled), the steer would race the terminal turn and silently drop. `start_task` handles this transparently: the public entrypoint waits up to `TASK_STEER_CLOSING_WAIT_SECONDS` (default 5s) for the slot to free, then retries the start cleanly — the LLM never sees the intermediate state. Explicit `steer_task` returns `error: "task_closing"` for the LLM to chain `start_task` itself. Personal and corp in-process ships symmetric; BYOA skips the check.
+- Voice agent prompt: removed the contradictory "do NOT call start_task if all slots are occupied" line; added a short note that for steered instructions the agent should read the `task.completed` message and mention any unfulfilled intent to the commander.
+
 ## [0.6.0] - 2026-05-26
 
 ### Changed
