@@ -272,7 +272,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
       })
     ),
 
-  setShips: (ships: ShipSelf[]) =>
+  setShips: (ships: ShipSelf[]) => {
     set(
       produce((state) => {
         const now = new Date().toISOString()
@@ -294,7 +294,9 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
         }
         state.destroyedShips = ships.filter((s: ShipSelf) => !!s.destroyed_at)
       })
-    ),
+    )
+    get().hydrateShipTaskOccupancyFromSnapshot(ships)
+  },
 
   addShip: (ship: Partial<ShipSelf>) =>
     set(
@@ -442,6 +444,10 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
 
   setCorporation: (corporation: Corporation | undefined) => {
     const hadCorp = !!get().corporation
+    const previousCorpShipIds =
+      get()
+        .ships.data?.filter((ship) => ship.owner_type === "corporation")
+        .map((ship) => ship.ship_id) ?? []
     // Detect corp transition and invalidate map coverage so the next
     // map.local/map.region replaces stale data instead of merging.
     if (!hadCorp && corporation) {
@@ -489,6 +495,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
               fighters: ship.fighters,
               max_fighters: ship.max_fighters,
               current_task_id: ship.current_task_id,
+              current_task_actor: ship.current_task_actor,
               byoa:
                 ship.byoa === undefined ? existingShip?.byoa
                 : ship.byoa ?
@@ -514,6 +521,13 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
         }
       })
     )
+    if (corporation?.ships) {
+      get().hydrateShipTaskOccupancyFromSnapshot(corporation.ships)
+    } else if (hadCorp) {
+      for (const shipId of previousCorpShipIds) {
+        get().clearShipTaskOccupancyByShipId(shipId)
+      }
+    }
   },
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),

@@ -1327,6 +1327,7 @@ class TestTaskToolWrappers:
             "task_type": "corp_ship",
             "steered": True,
             "ship_character_id": "ship-xyz",
+            "ship_name": "Atlasco",
         }
         agent._handle_steer_task = AsyncMock(return_value=result)
         params = _make_function_call_params(function_name="steer_task", result_callback=AsyncMock())
@@ -1345,11 +1346,13 @@ class TestTaskToolWrappers:
         # this is what clears the client's "thinking" state.
         assert deferred_frame.run_llm is True
         assert deferred_frame.messages[0]["role"] == "user"
-        assert (
-            '<event name="task.steered" task_id="task_abc123" task_type="corp_ship">'
-            in deferred_frame.messages[0]["content"]
-        )
-        assert "Steering instruction sent" in deferred_frame.messages[0]["content"]
+        content = deferred_frame.messages[0]["content"]
+        assert '<event name="task.steered"' in content
+        assert 'task_id="task_abc123"' in content
+        assert 'task_type="corp_ship"' in content
+        assert 'ship_id="ship-x"' in content
+        assert 'ship_name="Atlasco"' in content
+        assert "Steering instruction sent" in content
 
     @pytest.mark.asyncio
     async def test_steer_task_tool_task_closing_silently_surfaces_retry(self):

@@ -8,6 +8,7 @@ import { ShipCardStat } from "@/components/ShipCardStat"
 import { CreditsIcon, CurrentSectorIcon, FighterIcon, FuelIcon } from "@/icons"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
+import { selectShipTaskOccupancy } from "@/stores/taskSlice"
 import { isShipInCombat } from "@/utils/combat"
 import { formatCurrency } from "@/utils/formatting"
 import { shipTypeVerbose } from "@/utils/game"
@@ -53,9 +54,14 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   const activeTask = useGameStore((state) =>
     Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
   )
-  const isBusy = !!(activeTask || ship.current_task_id)
-  const isWaking = activeTask?.task_status === "waking"
-  const actorName = activeTask?.actor_character_name ?? ship.current_task_actor_name
+  const taskOccupancy = useGameStore((state) => selectShipTaskOccupancy(state, ship.ship_id))
+  const isBusy = !!taskOccupancy
+  const isWaking = taskOccupancy?.task_status === "waking"
+  const actorName =
+    activeTask?.actor_character_name ??
+    taskOccupancy?.actor_name ??
+    ship.current_task_actor?.character_name ??
+    ship.current_task_actor_name
   const isInCombat = useGameStore((state) => isShipInCombat(state, ship.ship_id))
 
   useEffect(() => {
@@ -76,7 +82,9 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
       </AnimatePresence>
       <div className="relative z-10 flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex flex-row gap-1 items-center">
-          {ship.byoa && <ShipStatusPopover ship={ship} isActive={isBusy} />}
+          {ship.byoa && (
+            <ShipStatusPopover ship={ship} isActive={isBusy} taskOccupancy={taskOccupancy} />
+          )}
           <div className="flex flex-row gap-2 items-center">
             <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
             <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>

@@ -91,6 +91,7 @@ from gradientbang.runtime.task_lookup import (
 from gradientbang.runtime.voice_runtime import VoiceRuntime
 from gradientbang.utils.formatting import (
     looks_like_uuid,
+    short_id,
     summarize_corporation_info,
     summarize_leaderboard,
     summarize_ship_definitions,
@@ -117,6 +118,23 @@ class _SteerTarget:
     agent_name: str
     task_type: str
     ship_character_id: str
+    ship_name: Optional[str] = None
+
+
+def _xml_escape_attr(value: Any) -> str:
+    """Escape XML attribute values used in synthetic LLM events."""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _ship_name_from_metadata(metadata: Any) -> Optional[str]:
+    ship_name = metadata.get("ship_name") if isinstance(metadata, dict) else None
+    return ship_name if isinstance(ship_name, str) and ship_name else None
 
 
 def require_voice_worker(func):
@@ -1969,6 +1987,7 @@ class Orchestrator:
                 agent_name=byoa_agent_name,
                 task_type="corp_ship",
                 ship_character_id=ship_character_id,
+                ship_name=_ship_name_from_metadata(byoa_ctx.get("task_metadata", {})),
             )
 
         for group_task_id, group in self.job_groups.items():
@@ -1991,6 +2010,7 @@ class Orchestrator:
                         agent_name=child.name,
                         task_type="corp_ship" if child._is_corp_ship else "player_ship",
                         ship_character_id=child._character_id,
+                        ship_name=_ship_name_from_metadata(getattr(child, "_task_metadata", {})),
                     )
         return None
 
@@ -2021,6 +2041,7 @@ class Orchestrator:
                     agent_name=child.name,
                     task_type="corp_ship" if child._is_corp_ship else "player_ship",
                     ship_character_id=child._character_id,
+                    ship_name=_ship_name_from_metadata(getattr(child, "_task_metadata", {})),
                 )
 
             byoa_ctx = self._byoa.get_active(name)
@@ -2032,6 +2053,7 @@ class Orchestrator:
                         agent_name=name,
                         task_type="corp_ship",
                         ship_character_id=character_id,
+                        ship_name=_ship_name_from_metadata(byoa_ctx.get("task_metadata", {})),
                     )
         return None
 
@@ -2324,6 +2346,28 @@ class Orchestrator:
             )
             await self._task_output_handler(text, message_type, message.job_id, task_type)
 
+    def format_task_event_xml(
+        self,
+        event_name: str,
+        *,
+        summary: str,
+        task_id: Optional[str] = None,
+        task_type: str = "player_ship",
+        ship_id: Optional[str] = None,
+        ship_name: Optional[str] = None,
+    ) -> str:
+        """Build the synthetic task event XML injected into voice context."""
+        attrs = [f'name="{_xml_escape_attr(event_name)}"']
+        if task_id:
+            attrs.append(f'task_id="{_xml_escape_attr(task_id)}"')
+        attrs.append(f'task_type="{_xml_escape_attr(task_type)}"')
+        short_ship_id = short_id(ship_id)
+        if short_ship_id:
+            attrs.append(f'ship_id="{_xml_escape_attr(short_ship_id)}"')
+        if ship_name:
+            attrs.append(f'ship_name="{_xml_escape_attr(ship_name)}"')
+        return f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+
     async def on_job_response(self, message: BusJobResponseMessage) -> None:
         agent_name = message.source
         child = next(
@@ -2375,11 +2419,29 @@ class Orchestrator:
                 if byoa_ctx
                 else {}
             )
-            ship_name = task_metadata.get("ship_name") if isinstance(task_metadata, dict) else None
-            ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
-            event_xml = (
-                f'<event name="task.{status_label}" task_id="{message.job_id[:8]}" '
-                f'task_type="{task_type}"{ship_attr}>\n{llm_msg}\n</event>'
+            ship_name = _ship_name_from_metadata(task_metadata)
+            metadata_ship_id = (
+                task_metadata.get("ship_id") if isinstance(task_metadata, dict) else None
+            )
+            actor_ship_id = (
+                task_metadata.get("actor_ship_id") if isinstance(task_metadata, dict) else None
+            )
+            event_ship_id = (
+                str(metadata_ship_id)
+                if isinstance(metadata_ship_id, str) and metadata_ship_id
+                else ship_character_id
+                if task_type == "corp_ship"
+                else str(actor_ship_id)
+                if isinstance(actor_ship_id, str) and actor_ship_id
+                else None
+            )
+            event_xml = self.format_task_event_xml(
+                f"task.{status_label}",
+                task_id=message.job_id[:8],
+                task_type=task_type,
+                ship_id=event_ship_id,
+                ship_name=ship_name,
+                summary=str(llm_msg),
             )
 
             # Hand off to the deferred-update queue. The drain coordinator
@@ -2696,6 +2758,8 @@ class Orchestrator:
             )
             if actor_character_id:
                 task_metadata["actor_character_id"] = actor_character_id
+            if msg.ship_id:
+                task_metadata["ship_id"] = msg.ship_id
             await self._game_client.task_lifecycle(
                 character_id=character_id,
                 task_id=msg.task_id,
@@ -3020,6 +3084,7 @@ class Orchestrator:
                             "task_id": framework_task_id,
                             "task_type": task_type,
                             "ship_character_id": target_character_id,
+                            "ship_name": corp_ship_name,
                         }
                     return {
                         "success": True,
@@ -3028,6 +3093,7 @@ class Orchestrator:
                         "task_id": framework_task_id,
                         "task_type": task_type,
                         "ship_character_id": target_character_id,
+                        "ship_name": corp_ship_name,
                     }
 
                 # Phase: spawn local worker.
@@ -3083,6 +3149,7 @@ class Orchestrator:
                     "task_id": framework_task_id,
                     "task_type": task_type,
                     "ship_character_id": target_character_id,
+                    "ship_name": corp_ship_name,
                 }
             except Exception as e:
                 logger.error(f"start_task failed: {e}")
@@ -3124,12 +3191,14 @@ class Orchestrator:
 
             await self.cancel_job_group(framework_task_id, reason="Cancelled by user")
             task_type = "corp_ship" if child._is_corp_ship else "player_ship"
+            ship_name = _ship_name_from_metadata(getattr(child, "_task_metadata", {}))
             return {
                 "success": True,
                 "message": "Task cancelled",
                 "task_id": framework_task_id,
                 "task_type": task_type,
                 "ship_character_id": child._character_id,
+                "ship_name": ship_name,
             }
         except Exception as e:
             logger.error(f"stop_task failed: {e}")
@@ -3185,6 +3254,7 @@ class Orchestrator:
                 "task_id": target.framework_task_id,
                 "task_type": target.task_type,
                 "ship_character_id": target.ship_character_id,
+                "ship_name": target.ship_name,
             }
 
         await self.send_bus_message(
@@ -3211,6 +3281,7 @@ class Orchestrator:
             "task_type": target.task_type,
             "steered": True,
             "ship_character_id": target.ship_character_id,
+            "ship_name": target.ship_name,
         }
 
     @traced
@@ -3392,6 +3463,14 @@ class Orchestrator:
         task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
         steered = bool(result.get("steered"))
         ship_character_id = result.get("ship_character_id")
+        event_ship_id = (
+            ship_character_id
+            if task_type == "corp_ship" and isinstance(ship_character_id, str)
+            else self.event_relay.actor_ship_id
+            if self.event_relay
+            else None
+        )
+        ship_name = result.get("ship_name") if isinstance(result.get("ship_name"), str) else None
         summary = (
             str(result.get("message") or result.get("summary") or "Task started").strip()
             or "Task started"
@@ -3405,11 +3484,14 @@ class Orchestrator:
             await self._silent_flush_for_ship(ship_character_id)
 
         event_name = "task.steered" if steered else "task.started"
-        attrs = [f'name="{event_name}"']
-        if task_id:
-            attrs.append(f'task_id="{task_id}"')
-        attrs.append(f'task_type="{task_type}"')
-        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        event_xml = self.format_task_event_xml(
+            event_name,
+            task_id=task_id or None,
+            task_type=task_type,
+            ship_id=event_ship_id,
+            ship_name=ship_name,
+            summary=summary,
+        )
         # Drive the post-tool assistant turn through the same deferred
         # LLMRunFrame path used by stop_task / steer_task. This is what
         # clears the client's "thinking" state now that the voice LLM
@@ -3438,6 +3520,14 @@ class Orchestrator:
         task_id = str(result.get("task_id", "")).strip()
         task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
         ship_character_id = result.get("ship_character_id")
+        event_ship_id = (
+            ship_character_id
+            if task_type == "corp_ship" and isinstance(ship_character_id, str)
+            else self.event_relay.actor_ship_id
+            if self.event_relay
+            else None
+        )
+        ship_name = result.get("ship_name") if isinstance(result.get("ship_name"), str) else None
         summary = (
             str(result.get("message") or result.get("summary") or "Task cancelled").strip()
             or "Task cancelled"
@@ -3448,11 +3538,14 @@ class Orchestrator:
         if isinstance(ship_character_id, str) and ship_character_id:
             await self._silent_flush_for_ship(ship_character_id)
 
-        attrs = ['name="task.cancelled"']
-        if task_id:
-            attrs.append(f'task_id="{task_id}"')
-        attrs.append(f'task_type="{task_type}"')
-        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        event_xml = self.format_task_event_xml(
+            "task.cancelled",
+            task_id=task_id or None,
+            task_type=task_type,
+            ship_id=event_ship_id,
+            ship_name=ship_name,
+            summary=summary,
+        )
         await self._inject_context(
             [{"role": "user", "content": event_xml}],
             run_llm=True,
@@ -3495,16 +3588,32 @@ class Orchestrator:
             if isinstance(result, dict)
             else "player_ship"
         )
+        ship_character_id = result.get("ship_character_id") if isinstance(result, dict) else None
+        event_ship_id = (
+            ship_character_id
+            if task_type == "corp_ship" and isinstance(ship_character_id, str)
+            else self.event_relay.actor_ship_id
+            if self.event_relay
+            else None
+        )
+        ship_name = (
+            result.get("ship_name")
+            if isinstance(result, dict) and isinstance(result.get("ship_name"), str)
+            else None
+        )
         summary = (
             str(summary_field or "Steering instruction sent.").strip()
             or "Steering instruction sent."
         )
 
-        attrs = ['name="task.steered"']
-        if task_id:
-            attrs.append(f'task_id="{task_id}"')
-        attrs.append(f'task_type="{task_type}"')
-        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        event_xml = self.format_task_event_xml(
+            "task.steered",
+            task_id=task_id or None,
+            task_type=task_type,
+            ship_id=event_ship_id,
+            ship_name=ship_name,
+            summary=summary,
+        )
         await self._inject_context(
             [{"role": "user", "content": event_xml}],
             run_llm=True,

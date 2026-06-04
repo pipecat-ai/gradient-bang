@@ -301,6 +301,7 @@ class BusTaskFinishNotification(BusDataMessage):
             authorises the finish against this field, not against
             ``character_id``.
         task_id: The framework task id.
+        ship_id: Full ship id for the task target when known.
         status: How the task ended.
         summary: Optional human-readable summary for the finish event.
     """
@@ -308,6 +309,7 @@ class BusTaskFinishNotification(BusDataMessage):
     character_id: str = ""
     actor_character_id: str = ""
     task_id: str = ""
+    ship_id: str = ""
     status: Literal["completed", "failed", "cancelled"] = "completed"
     summary: Optional[str] = None
 

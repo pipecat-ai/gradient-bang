@@ -159,6 +159,20 @@ class ByoaCoordinator:
             )
         return f"BYOA wake failed before the runner came online ({target}/{status})."
 
+    @staticmethod
+    def _ship_name_from_pending_task(pending_task: Optional[tuple]) -> Optional[str]:
+        """Read ship_name from a pending task payload without extra RPCs."""
+        if not pending_task or len(pending_task) < 2:
+            return None
+        payload = pending_task[1]
+        if not isinstance(payload, dict):
+            return None
+        task_metadata = payload.get("task_metadata")
+        if not isinstance(task_metadata, dict):
+            return None
+        ship_name = task_metadata.get("ship_name")
+        return ship_name if isinstance(ship_name, str) and ship_name else None
+
     # ── Presence ──────────────────────────────────────────────────────────
 
     def note_known_ship(self, ship_id: str) -> None:
@@ -467,7 +481,8 @@ class ByoaCoordinator:
             return False
 
         agent_name = self.agent_name_for(target_character_id)
-        had_pending_task = self._host.has_pending_task(agent_name)
+        pending_task = self._host.clear_pending_task(agent_name)
+        had_pending_task = pending_task is not None
         watchdog = self._pending_wakes.pop(target_character_id, None)
         had_watchdog = watchdog is not None
         if not had_pending_task and not had_watchdog:
@@ -475,15 +490,16 @@ class ByoaCoordinator:
 
         if watchdog is not None and not watchdog.done():
             watchdog.cancel()
-        self._host.clear_pending_task(agent_name)
         self._host.release_ship_lock(target_character_id)
         self._host.update_polling_scope()
 
-        event_xml = (
-            f'<event name="task.cancelled" task_id="{game_task_id[:8]}" '
-            'task_type="corp_ship">\n'
-            f"{summary}\n"
-            "</event>"
+        event_xml = self._host.format_task_event_xml(
+            "task.cancelled",
+            task_id=game_task_id[:8],
+            task_type="corp_ship",
+            ship_id=target_character_id,
+            ship_name=self._ship_name_from_pending_task(pending_task),
+            summary=summary,
         )
         self._host.enqueue_deferred_update(event_xml, ship_id=target_character_id)
         logger.info(
@@ -563,7 +579,8 @@ class ByoaCoordinator:
             return
         # A `task.started` event for this task has already been consumed by
         # on_agent_ready — bail out so we don't double-cancel a live task.
-        if not self._host.has_pending_task(agent_name):
+        pending_task = self._host.clear_pending_task(agent_name)
+        if pending_task is None:
             logger.info(
                 f"byoa.wake_agent.rejected.no_pending ship={target_character_id[:8]} "
                 f"task={framework_task_id[:8]} (agent already ready)"
@@ -574,7 +591,6 @@ class ByoaCoordinator:
             f"task={framework_task_id[:8]} error={wake_error!r}"
         )
         self.cancel_pending_wake(target_character_id)
-        self._host.clear_pending_task(agent_name)
         self._host.release_ship_lock(target_character_id, expected_task_id=framework_task_id)
         self.invalidate_registry_entry(agent_name)
         try:
@@ -586,11 +602,13 @@ class ByoaCoordinator:
         except Exception as release_exc:
             logger.warning(f"byoa.wake_agent.rejected.release error={release_exc!r}")
         self._host.enqueue_deferred_update(
-            (
-                f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
-                'task_type="corp_ship">\n'
-                f"{wake_error}\n"
-                "</event>"
+            self._host.format_task_event_xml(
+                "task.cancelled",
+                task_id=framework_task_id[:8],
+                task_type="corp_ship",
+                ship_id=target_character_id,
+                ship_name=self._ship_name_from_pending_task(pending_task),
+                summary=wake_error,
             ),
             ship_id=target_character_id,
         )
@@ -624,7 +642,7 @@ class ByoaCoordinator:
         )
         # Clean local state first so a concurrent unsolicited hello after
         # this point can't trigger a half-dispatched task.
-        self._host.clear_pending_task(agent_name)
+        pending_task = self._host.clear_pending_task(agent_name)
         self._pending_wakes.pop(target_character_id, None)
         self._host.release_ship_lock(target_character_id)
         self.invalidate_registry_entry(agent_name)
@@ -642,11 +660,13 @@ class ByoaCoordinator:
                 f"byoa.wake_timeout.release_failed task={framework_task_id[:8]} error={exc!r}"
             )
         self._host.enqueue_deferred_update(
-            (
-                f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
-                'task_type="corp_ship">\n'
-                "Task was cancelled because the BYOA agent did not come online in time.\n"
-                "</event>"
+            self._host.format_task_event_xml(
+                "task.cancelled",
+                task_id=framework_task_id[:8],
+                task_type="corp_ship",
+                ship_id=target_character_id,
+                ship_name=self._ship_name_from_pending_task(pending_task),
+                summary="Task was cancelled because the BYOA agent did not come online in time.",
             ),
             ship_id=target_character_id,
         )

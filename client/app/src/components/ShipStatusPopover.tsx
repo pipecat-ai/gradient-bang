@@ -18,6 +18,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/primitives/Popover"
+import type { ShipTaskOccupancy } from "@/stores/taskSlice"
 import { cn } from "@/utils/tailwind"
 
 import { Badge } from "./primitives/Badge"
@@ -40,7 +41,15 @@ function StatusRow({
   )
 }
 
-export const ShipStatusPopover = ({ ship, isActive }: { ship: Ship; isActive?: boolean }) => {
+export const ShipStatusPopover = ({
+  ship,
+  isActive,
+  taskOccupancy,
+}: {
+  ship: Ship
+  isActive?: boolean
+  taskOccupancy?: ShipTaskOccupancy
+}) => {
   const byoa = ship.byoa ?? null
   const isOnline = byoa?.presence?.online === true
   const actor = ship.current_task_actor ?? null
@@ -85,6 +94,7 @@ export const ShipStatusPopover = ({ ship, isActive }: { ship: Ship; isActive?: b
           <StatusRow
             label="Active actor"
             value={
+              taskOccupancy?.actor_name ??
               actor?.character_name ??
               actor?.character_id_prefix ?? <span className="text-subtle-foreground">—</span>
             }
@@ -92,9 +102,9 @@ export const ShipStatusPopover = ({ ship, isActive }: { ship: Ship; isActive?: b
           <StatusRow
             label="Task"
             value={
-              ship.current_task_id ?
+              taskOccupancy?.task_id ?
                 <span className="font-mono">
-                  {ship.current_task_id.replace(/-/g, "").slice(0, 12)}
+                  {taskOccupancy.task_id.replace(/-/g, "").slice(0, 12)}
                 </span>
               : <span className="text-subtle-foreground">—</span>
             }

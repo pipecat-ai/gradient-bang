@@ -850,6 +850,7 @@ export function GameProvider({ children }: GameProviderProps) {
                     fighters: ship.fighters,
                     max_fighters: ship.max_fighters,
                     current_task_id: ship.current_task_id,
+                    current_task_actor: ship.current_task_actor,
                   })
                 }
               }
@@ -908,6 +909,7 @@ export function GameProvider({ children }: GameProviderProps) {
                   fighters: ship.fighters,
                   max_fighters: ship.max_fighters,
                   current_task_id: ship.current_task_id,
+                  current_task_actor: ship.current_task_actor,
                 })
               }
 
@@ -1541,9 +1543,9 @@ export function GameProvider({ children }: GameProviderProps) {
               const myId = useGameStore.getState().character_id
               const isMyTask = !data.actor_character_id || data.actor_character_id === myId
 
-              // Only track tasks initiated by this player in the task engine.
-              // Other corp members' tasks show ship "busy" status via the
-              // ship's current_task_id but don't fill our task engine badges.
+              // Only tasks initiated by this player get full task-engine
+              // metadata. Ship busy state is tracked separately so other
+              // corp members' tasks can still mark a ship occupied.
               if (taskId && isMyTask) {
                 useGameStore.getState().addActiveTask({
                   task_id: taskId,
@@ -1559,11 +1561,12 @@ export function GameProvider({ children }: GameProviderProps) {
                 })
               }
 
-              // Update corp ship's task state so ShipCard shows busy status
               if (taskId && data.ship_id && isKnownFleetShip(data.ship_id)) {
-                upsertCorporationShip(data.ship_id, {
-                  current_task_id: taskId,
-                  current_task_actor_name: data.actor_character_name ?? null,
+                useGameStore.getState().setShipTaskOccupancy(data.ship_id, {
+                  task_id: taskId,
+                  actor_name: data.actor_character_name ?? null,
+                  task_status: data.task_status === "waking" ? "waking" : "active",
+                  source: "live",
                 })
               }
               break
@@ -1574,28 +1577,35 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.TaskFinishMessage
 
               const taskId = normalizeTaskId(data.task_id)
+              if (!taskId) break
 
-              // Clear corp ship's task state regardless of who owns the task
-              if (data.ship_id && isKnownFleetShip(data.ship_id)) {
-                upsertCorporationShip(data.ship_id, {
-                  current_task_id: null,
-                  current_task_actor_name: null,
-                })
+              const activeTasks = useGameStore.getState().activeTasks
+              const selectedTaskId =
+                activeTasks[taskId] ? taskId : (
+                  Object.keys(activeTasks).find((activeTaskId) => activeTaskId.startsWith(taskId))
+                )
+              const activeTask = selectedTaskId ? activeTasks[selectedTaskId] : undefined
+              const shipId = data.ship_id ?? activeTask?.ship_id
+
+              if (shipId && isKnownFleetShip(shipId)) {
+                useGameStore.getState().clearShipTaskOccupancyByShipId(shipId)
+              } else {
+                useGameStore.getState().clearShipTaskOccupancyByTaskId(taskId)
               }
 
               // Only process task engine cleanup if this task is in our
               // active tasks (i.e. we tracked it on task.start because it
               // belongs to us).
-              if (taskId && useGameStore.getState().activeTasks[taskId]) {
-                useGameStore.getState().removeActiveTask(taskId)
+              if (selectedTaskId) {
+                useGameStore.getState().removeActiveTask(selectedTaskId)
 
                 // Backward compatibility while old short IDs may still exist in local state.
-                if (taskId.length > 6) {
-                  useGameStore.getState().removeActiveTask(taskId.slice(0, 6))
+                if (selectedTaskId.length > 6) {
+                  useGameStore.getState().removeActiveTask(selectedTaskId.slice(0, 6))
                 } else {
                   const activeTaskIds = Object.keys(useGameStore.getState().activeTasks)
                   for (const activeTaskId of activeTaskIds) {
-                    if (activeTaskId.startsWith(taskId)) {
+                    if (activeTaskId.startsWith(selectedTaskId)) {
                       useGameStore.getState().removeActiveTask(activeTaskId)
                     }
                   }
@@ -1628,10 +1638,9 @@ export function GameProvider({ children }: GameProviderProps) {
               const shipId = data.ship_id ?? activeTask?.ship_id
 
               if (shipId && isKnownFleetShip(shipId)) {
-                upsertCorporationShip(shipId, {
-                  current_task_id: null,
-                  current_task_actor_name: null,
-                })
+                useGameStore.getState().clearShipTaskOccupancyByShipId(shipId)
+              } else {
+                useGameStore.getState().clearShipTaskOccupancyByTaskId(taskId)
               }
 
               if (selectedTaskId) {
